@@ -1,0 +1,32 @@
+{
+  "env": {
+    "ollamaApiKey": "",
+    "ollamaHost": "https://ollama.com",
+    "geminiApiKey": "",
+    "groqApiKey": "",
+    "openRouterApiKey": ""
+  },
+  "config": {
+    "models": [
+      "groq/llama-3.3-70b-versatile",
+      "openrouter/google/gemma-4-31b-it:free",
+      "openrouter/openrouter/free",
+      "gpt-oss:20b-cloud",
+      "openrouter/meta-llama/llama-3.2-3b-instruct:free",
+      "groq/mixtral-8x7b-32768"
+    ],
+    "tasks": [
+      {
+        "id": "speed-test",
+        "name": "Short Speed Test",
+        "prompt": "Explain quantum computing in exactly one sentence."
+      },
+      {
+        "id": "coding-test",
+        "name": "JavaScript Coding Test",
+        "prompt": "Write a JavaScript function to reverse a singly linked list. Output only the code block."
+      }
+    ],
+    "iterations": 2
+  }
+}
