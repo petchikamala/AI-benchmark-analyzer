@@ -111,6 +111,20 @@ const PLAYGROUND_PROMPTS = {
   }
 };
 
+const NAV_ITEMS = [
+  { name: 'Overview', icon: LayoutDashboard },
+  { name: 'Run Benchmark', icon: PlayCircle },
+  { name: 'Live Runs', icon: Activity },
+  { name: 'Leaderboard', icon: Trophy },
+  { name: 'Compare Models', icon: Sliders },
+  { name: 'History', icon: HistoryIcon },
+  { name: 'Analytics', icon: BarChart3 },
+  { name: 'Playground', icon: Code },
+  { name: 'Prompt Library', icon: Database },
+  { name: 'API Keys', icon: Key },
+  { name: 'Settings', icon: Settings },
+];
+
 function generateSessionId() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = Math.random() * 16 | 0;
@@ -141,6 +155,7 @@ export default function BenchmarkDashboard() {
 
   // Modals & UI States
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState('Overview');
   const [searchModelQuery, setSearchModelQuery] = useState('');
   const [providerFilter, setProviderFilter] = useState('All');
@@ -247,6 +262,7 @@ export default function BenchmarkDashboard() {
   // Navigation Click Handler
   const handleNavClick = (navName) => {
     setActiveNav(navName);
+    setIsMobileMenuOpen(false);
     if (navName === 'Overview') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } else if (navName === 'Run Benchmark' || navName === 'Playground') {
@@ -507,10 +523,85 @@ export default function BenchmarkDashboard() {
   });
 
   return (
-    <div className="flex min-h-screen bg-[#f3f4f8] text-slate-900">
+    <div className="flex flex-col md:flex-row min-h-screen bg-[#f3f4f8] text-slate-900 relative">
       
-      {/* ─── Collapsible Left Sidebar ────────────────────────── */}
-      <aside className={`flex flex-col h-screen sticky top-0 bg-white border-r border-slate-200 transition-all duration-300 z-30 ${isSidebarCollapsed ? 'w-20' : 'w-64'}`}>
+      {/* ─── Mobile Header Topbar (< md) ────────────────────────── */}
+      <header className="md:hidden sticky top-0 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between z-40 shadow-xs">
+        <div className="flex items-center gap-2.5">
+          <span className="text-xl text-purple-600">⚡</span>
+          <span className="font-extrabold text-sm tracking-tight text-slate-900">
+            AI Benchmark <span className="text-purple-600 text-xs font-semibold">Analyzer</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 flex items-center gap-1 text-[10px] text-emerald-700 font-bold">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+            Live
+          </div>
+          <button 
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+            aria-label="Toggle navigation menu"
+            className="p-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
+          >
+            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
+      </header>
+
+      {/* ─── Mobile Off-Canvas Navigation Drawer (< md) ───────── */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-50 md:hidden animate-fade-in">
+          <div 
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" 
+            onClick={() => setIsMobileMenuOpen(false)} 
+          />
+          <aside className="fixed inset-y-0 left-0 w-72 max-w-[80vw] bg-white shadow-2xl flex flex-col z-50 animate-drawer-in">
+            <div className="flex items-center justify-between p-4 border-b border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl text-purple-600">⚡</span>
+                <span className="font-extrabold text-base tracking-tight text-slate-900">
+                  AI Benchmark <span className="text-xs text-purple-600 block font-semibold">Analyzer</span>
+                </span>
+              </div>
+              <button onClick={() => setIsMobileMenuOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+              {NAV_ITEMS.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeNav === item.name;
+                return (
+                  <button
+                    key={item.name}
+                    onClick={() => handleNavClick(item.name)}
+                    className={`flex items-center w-full px-3 py-3 rounded-xl transition text-xs font-semibold ${
+                      isActive 
+                        ? 'bg-purple-50 text-purple-700 border-l-4 border-purple-600 shadow-sm font-bold' 
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-purple-600' : 'text-slate-400'}`} />
+                    <span className="ml-3 truncate">{item.name}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            <div className="p-4 border-t border-slate-200 space-y-2">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 flex items-center gap-2 text-xs text-emerald-700 font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                <span>All Systems Operational</span>
+              </div>
+              <div className="text-[10px] text-slate-400 font-mono">v2.0.0</div>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* ─── Collapsible Left Sidebar (Desktop md+) ──────────── */}
+      <aside className={`hidden md:flex flex-col h-screen sticky top-0 bg-white border-r border-slate-200 transition-all duration-300 z-30 ${isSidebarCollapsed ? 'w-20' : 'w-64'}`}>
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
           <div className="flex items-center gap-3 overflow-hidden">
             <span className="text-2xl text-purple-600">⚡</span>
@@ -526,19 +617,7 @@ export default function BenchmarkDashboard() {
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {[
-            { name: 'Overview', icon: LayoutDashboard },
-            { name: 'Run Benchmark', icon: PlayCircle },
-            { name: 'Live Runs', icon: Activity },
-            { name: 'Leaderboard', icon: Trophy },
-            { name: 'Compare Models', icon: Sliders },
-            { name: 'History', icon: HistoryIcon },
-            { name: 'Analytics', icon: BarChart3 },
-            { name: 'Playground', icon: Code },
-            { name: 'Prompt Library', icon: Database },
-            { name: 'API Keys', icon: Key },
-            { name: 'Settings', icon: Settings },
-          ].map((item) => {
+          {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = activeNav === item.name;
             return (
@@ -568,25 +647,25 @@ export default function BenchmarkDashboard() {
       </aside>
 
       {/* ─── Main Workspace ───────────────────────── */}
-      <div className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
+      <div className="flex-1 flex flex-col min-h-screen overflow-x-hidden w-full">
         
         {/* Main Body */}
-        <main className="flex-1 p-6 space-y-6 max-w-7xl mx-auto w-full">
+        <main className="flex-1 p-4 sm:p-6 space-y-5 sm:space-y-6 max-w-7xl mx-auto w-full">
 
           {/* Toast Notification Container */}
-          <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2">
+          <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:w-auto z-50 flex flex-col gap-2 pointer-events-none">
             {toasts.map(t => (
-              <div key={t.id} className="flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl bg-white border border-slate-200 text-xs font-semibold text-slate-800 animate-slide-in">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>{t.message}</span>
+              <div key={t.id} className="pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl bg-white border border-slate-200 text-xs font-semibold text-slate-800 animate-slide-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                <span className="truncate">{t.message}</span>
               </div>
             ))}
           </div>
 
           {/* API Keys Configuration Modal */}
           {isApiKeysModalOpen && (
-            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-4 animate-scale-up">
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6 space-y-4 mx-4 animate-scale-up">
                 <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                   <h3 className="font-bold text-base flex items-center gap-2 text-slate-900">
                     <Key className="w-5 h-5 text-purple-600" /> API Keys & Provider Settings
@@ -621,8 +700,8 @@ export default function BenchmarkDashboard() {
 
           {/* Inspected History Row Modal */}
           {inspectedRow && (
-            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4">
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6 space-y-4 mx-4">
                 <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                   <h3 className="font-bold text-base text-slate-900">
                     Run Inspection: {inspectedRow.model}
@@ -653,9 +732,9 @@ export default function BenchmarkDashboard() {
           )}
 
           {/* 1. Hero Section */}
-          <section className="relative overflow-hidden rounded-3xl hero-banner-gradient p-6 text-white shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <section className="relative overflow-hidden rounded-3xl hero-banner-gradient p-5 sm:p-6 text-white shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-5 sm:gap-6">
             <div className="space-y-1.5">
-              <h2 className="text-2xl font-extrabold tracking-tight flex items-center gap-2">
+              <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight flex items-center gap-2">
                 AI Benchmark Analyzer 👋
               </h2>
               <p className="text-white/80 text-xs max-w-md leading-relaxed">
@@ -663,32 +742,32 @@ export default function BenchmarkDashboard() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-white/15 backdrop-blur-md p-3.5 rounded-2xl border border-white/25">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 bg-white/15 backdrop-blur-md p-3 sm:p-3.5 rounded-2xl border border-white/25 w-full md:w-auto">
               <div>
                 <span className="text-[9px] text-white/70 font-bold uppercase tracking-wider block">Total Sessions</span>
-                <span className="text-lg font-extrabold text-white mt-0.5 block">128</span>
+                <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">128</span>
               </div>
               <div>
                 <span className="text-[9px] text-white/70 font-bold uppercase tracking-wider block">Today's Runs</span>
-                <span className="text-lg font-extrabold text-white mt-0.5 block">24</span>
+                <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">24</span>
               </div>
               <div>
                 <span className="text-[9px] text-white/70 font-bold uppercase tracking-wider block">Models Available</span>
-                <span className="text-lg font-extrabold text-white mt-0.5 block">36</span>
+                <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">36</span>
               </div>
               <div>
                 <span className="text-[9px] text-white/70 font-bold uppercase tracking-wider block">Avg. Latency</span>
-                <span className="text-lg font-extrabold text-white mt-0.5 block">1.42s</span>
+                <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">1.42s</span>
               </div>
             </div>
 
-            <button onClick={() => document.getElementById('config-section')?.scrollIntoView({ behavior: 'smooth' })} className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-xl border border-white/40 transition shadow-sm flex items-center gap-1.5">
+            <button onClick={() => document.getElementById('config-section')?.scrollIntoView({ behavior: 'smooth' })} className="w-full sm:w-auto justify-center px-4 py-2.5 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-xl border border-white/40 transition shadow-sm flex items-center gap-1.5">
               <Plus className="w-4 h-4" /> New Benchmark
             </button>
           </section>
 
           {/* 2. Four Dashboard Summary Cards */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
             {[
               { name: 'Total Models', value: '36', change: '↑ 12% vs last week', icon: Cpu, iconBg: 'bg-purple-100 text-purple-600' },
               { name: 'Total Benchmark Runs', value: '1,248', change: '↑ 18% vs last week', icon: Activity, iconBg: 'bg-blue-100 text-blue-600' },
@@ -712,10 +791,10 @@ export default function BenchmarkDashboard() {
           </section>
 
           {/* 3. Benchmark Configuration & AI Recommendation */}
-          <section id="config-section" className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <section id="config-section" className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6">
             
             {/* Left Panel: Select Models */}
-            <div className="glass-card rounded-2xl p-5 flex flex-col h-[480px]">
+            <div className="glass-card rounded-2xl p-4 sm:p-5 flex flex-col h-auto min-h-[380px] md:h-[480px]">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
                   <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">1</span> Select Models <span className="text-xs text-slate-400 font-normal">({selectedModels.length} selected)</span>
@@ -726,15 +805,15 @@ export default function BenchmarkDashboard() {
                 </div>
               </div>
 
-              <div className="flex gap-2 mb-3">
+              <div className="flex flex-col sm:flex-row gap-2 mb-3">
                 <input 
                   type="text" 
                   placeholder="Search models..." 
                   value={searchModelQuery}
                   onChange={e => setSearchModelQuery(e.target.value)}
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800" 
+                  className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800" 
                 />
-                <select value={providerFilter} onChange={e => setProviderFilter(e.target.value)} className="bg-slate-50 border border-slate-200 text-xs rounded-lg px-2 text-slate-700">
+                <select value={providerFilter} onChange={e => setProviderFilter(e.target.value)} className="bg-slate-50 border border-slate-200 text-xs rounded-lg px-2 py-1.5 text-slate-700">
                   <option value="All">All Providers</option>
                   <option value="Google Gemini">Google Gemini</option>
                   <option value="Groq API">Groq API</option>
@@ -743,7 +822,7 @@ export default function BenchmarkDashboard() {
                 </select>
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 scroll-smooth">
+              <div className="flex-1 max-h-56 md:max-h-none overflow-y-auto space-y-1.5 pr-1 scroll-smooth">
                 {Object.entries(modelsGrouped)
                   .filter(([group]) => providerFilter === 'All' || group === providerFilter)
                   .map(([group, models]) => (
@@ -755,11 +834,11 @@ export default function BenchmarkDashboard() {
                           const isSelected = selectedModels.includes(model);
                           return (
                             <div key={model} onClick={() => handleModelToggle(model, !isSelected)} className={`flex items-center justify-between p-2 rounded-xl cursor-pointer border text-xs ${isSelected ? 'bg-purple-50 border-purple-200 text-purple-900 font-semibold' : 'bg-slate-50/60 border-slate-200/60 text-slate-700 hover:bg-slate-100'}`}>
-                              <div className="flex items-center gap-2">
-                                <input type="checkbox" checked={isSelected} readOnly className="accent-purple-600 rounded" />
-                                <span className="truncate max-w-[130px]">{model.replace(/^(groq|openrouter)\//, '')}</span>
+                              <div className="flex items-center gap-2 overflow-hidden">
+                                <input type="checkbox" checked={isSelected} readOnly className="accent-purple-600 rounded flex-shrink-0" />
+                                <span className="truncate max-w-[140px] sm:max-w-none">{model.replace(/^(groq|openrouter)\//, '')}</span>
                               </div>
-                              <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                              <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-slate-100 text-slate-600 border border-slate-200 flex-shrink-0 ml-1">
                                 {model.startsWith('gemini-') ? 'Google' : model.startsWith('groq/') ? 'Groq' : model.startsWith('openrouter/') ? 'OpenRouter' : 'Ollama'}
                               </span>
                             </div>
@@ -769,8 +848,8 @@ export default function BenchmarkDashboard() {
                   ))}
               </div>
 
-              <div className="pt-3 border-t border-slate-200 flex justify-between text-xs text-slate-500 font-medium">
-                <span>{selectedModels.length} of 36 models selected</span>
+              <div className="pt-3 border-t border-slate-200 flex justify-between text-xs text-slate-500 font-medium mt-2 md:mt-0">
+                <span>{selectedModels.length} of 36 selected</span>
                 <button onClick={() => setIsApiKeysModalOpen(true)} className="text-purple-600 font-semibold hover:underline flex items-center gap-1">
                   <Key className="w-3 h-3" /> Config Keys
                 </button>
@@ -778,7 +857,7 @@ export default function BenchmarkDashboard() {
             </div>
 
             {/* Middle Panel: Benchmark Options */}
-            <div className="glass-card rounded-2xl p-5 flex flex-col h-[480px]">
+            <div className="glass-card rounded-2xl p-4 sm:p-5 flex flex-col h-auto min-h-[380px] md:h-[480px]">
               <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900 mb-3">
                 <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">2</span> Benchmark Options
               </h3>
@@ -841,7 +920,7 @@ export default function BenchmarkDashboard() {
             </div>
 
             {/* Right Panel: AI Recommendation */}
-            <div className="glass-card rounded-2xl p-5 flex flex-col h-[480px]">
+            <div className="glass-card rounded-2xl p-4 sm:p-5 flex flex-col h-auto min-h-[380px] md:h-[480px]">
               <h3 className="font-bold text-sm flex items-center gap-1.5 text-slate-900 mb-3">
                 AI Recommendation ✨
               </h3>
@@ -860,7 +939,7 @@ export default function BenchmarkDashboard() {
                   <Sparkles className="w-3.5 h-3.5" /> Recommend Best Model
                 </button>
 
-                <div className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col justify-between">
+                <div className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between space-y-2">
                   <div className="flex justify-between items-start">
                     <div>
                       <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Recommended Model</span>
@@ -886,8 +965,8 @@ export default function BenchmarkDashboard() {
                     <p>{recommendation.reason}</p>
                   </div>
 
-                  <div className="flex justify-between items-center text-[9px] pt-1">
-                    <div className="flex gap-1">
+                  <div className="flex flex-wrap items-center justify-between gap-1 text-[9px] pt-1">
+                    <div className="flex flex-wrap gap-1">
                       {recommendation.strengths.map((s, idx) => (
                         <span key={idx} className="bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-full border border-emerald-200">{s}</span>
                       ))}
@@ -917,7 +996,7 @@ export default function BenchmarkDashboard() {
           </section>
 
           {/* 4. Live Benchmark Status & Leaderboard & Analytics */}
-          <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <section className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6">
             
             {/* Live Benchmark Status */}
             <div id="live-status-section" className="glass-card rounded-2xl p-5 space-y-3">
@@ -959,33 +1038,35 @@ export default function BenchmarkDashboard() {
             </div>
 
             {/* Live Leaderboard */}
-            <div id="leaderboard-section" className="glass-card rounded-2xl p-5 space-y-3">
+            <div id="leaderboard-section" className="glass-card rounded-2xl p-4 sm:p-5 space-y-3">
               <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
                 <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">4</span> Live Leaderboard <span className="text-xs text-slate-400 font-normal">(Overall Score)</span>
               </h3>
 
-              <table className="w-full text-left border-collapse text-xs font-semibold">
-                <thead>
-                  <tr className="border-b border-slate-200 text-[10px] text-slate-400 uppercase">
-                    <th className="py-1.5 px-2">Rank</th>
-                    <th className="py-1.5 px-2">Model</th>
-                    <th className="py-1.5 px-2">Score</th>
-                    <th className="py-1.5 px-2">Latency</th>
-                    <th className="py-1.5 px-2">Accuracy</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leaderboardData.map((row, idx) => (
-                    <tr key={idx} className={`border-b border-slate-100 ${idx === 0 ? 'gold-rank-row font-extrabold text-slate-900' : ''}`}>
-                      <td className="py-2 px-2">{row.badge}</td>
-                      <td className="py-2 px-2 font-mono text-[11px]">{row.model}</td>
-                      <td className="py-2 px-2 font-bold text-purple-700">{row.score}</td>
-                      <td className="py-2 px-2 font-mono text-slate-600">{row.latency}</td>
-                      <td className="py-2 px-2 text-emerald-600 font-mono">{row.accuracy}</td>
+              <div className="overflow-x-auto -mx-1 px-1">
+                <table className="w-full min-w-[480px] text-left border-collapse text-xs font-semibold">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-[10px] text-slate-400 uppercase">
+                      <th className="py-1.5 px-2">Rank</th>
+                      <th className="py-1.5 px-2">Model</th>
+                      <th className="py-1.5 px-2">Score</th>
+                      <th className="py-1.5 px-2">Latency</th>
+                      <th className="py-1.5 px-2">Accuracy</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {leaderboardData.map((row, idx) => (
+                      <tr key={idx} className={`border-b border-slate-100 ${idx === 0 ? 'gold-rank-row font-extrabold text-slate-900' : ''}`}>
+                        <td className="py-2 px-2">{row.badge}</td>
+                        <td className="py-2 px-2 font-mono text-[11px]">{row.model}</td>
+                        <td className="py-2 px-2 font-bold text-purple-700">{row.score}</td>
+                        <td className="py-2 px-2 font-mono text-slate-600">{row.latency}</td>
+                        <td className="py-2 px-2 text-emerald-600 font-mono">{row.accuracy}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
               <div className="text-center pt-1">
                 <button onClick={() => document.getElementById('history-section')?.scrollIntoView({ behavior: 'smooth' })} className="text-xs text-blue-600 font-bold hover:underline">View Full Leaderboard →</button>
@@ -1115,18 +1196,18 @@ export default function BenchmarkDashboard() {
             </div>
 
             {/* Historical Analysis */}
-            <div id="history-section" className="glass-card rounded-2xl p-5 space-y-3 lg:col-span-2">
-              <div className="flex items-center justify-between">
+            <div id="history-section" className="glass-card rounded-2xl p-4 sm:p-5 space-y-3 lg:col-span-2">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                 <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
                   <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">7</span> Historical Analysis
                 </h3>
-                <div className="flex gap-2">
-                  <button onClick={downloadCSVReport} className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-300">Export CSV</button>
-                  <button onClick={downloadCSVReport} className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-300">Export PDF</button>
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <button onClick={downloadCSVReport} className="flex-1 sm:flex-initial bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-300">Export CSV</button>
+                  <button onClick={downloadCSVReport} className="flex-1 sm:flex-initial bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-300">Export PDF</button>
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2 text-xs">
+              <div className="flex flex-col sm:flex-row flex-wrap gap-2 text-xs">
                 <input type="text" value="May 21, 2025 - May 27, 2025" readOnly className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] text-slate-700" />
                 <select value={historyProviderFilter} onChange={e => setHistoryProviderFilter(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] text-slate-700">
                   <option value="All">All Providers</option>
@@ -1143,46 +1224,49 @@ export default function BenchmarkDashboard() {
                   <option value="coding">Coding</option>
                   <option value="reasoning">Reasoning</option>
                 </select>
-                <button onClick={() => showToast('Filters applied')} className="bg-slate-200 text-slate-700 text-[10px] font-bold px-2 py-1 rounded-lg">Filter</button>
+                <button onClick={() => showToast('Filters applied')} className="bg-slate-200 text-slate-700 text-[10px] font-bold px-3 py-1 rounded-lg">Filter</button>
               </div>
 
-              <table className="w-full text-left border-collapse text-xs font-semibold">
-                <thead>
-                  <tr className="border-b border-slate-200 text-[10px] text-slate-400 uppercase">
-                    <th className="py-1.5 px-2">Date &amp; Time</th>
-                    <th className="py-1.5 px-2">Model</th>
-                    <th className="py-1.5 px-2">Prompt Type</th>
-                    <th className="py-1.5 px-2">Iterations</th>
-                    <th className="py-1.5 px-2">Score</th>
-                    <th className="py-1.5 px-2">Latency</th>
-                    <th className="py-1.5 px-2">Status</th>
-                    <th className="py-1.5 px-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredHistory.map((row, idx) => (
-                    <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-2 px-2 text-slate-500 font-mono text-[10px]">{new Date(row.created_at || Date.now()).toLocaleString()}</td>
-                      <td className="py-2 px-2 font-bold text-slate-800">{row.model.split('/').pop()}</td>
-                      <td className="py-2 px-2 text-slate-600">{row.task}</td>
-                      <td className="py-2 px-2 font-mono text-slate-600">{row.iterations || 3}</td>
-                      <td className="py-2 px-2 font-bold text-purple-700">{row.score || 95.4}</td>
-                      <td className="py-2 px-2 font-mono text-slate-600">{(row.latency_ms / 1000).toFixed(2)}s</td>
-                      <td className="py-2 px-2">
-                        <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-[9px] font-extrabold border border-emerald-300">Completed</span>
-                      </td>
-                      <td className="py-2 px-2 text-slate-400 hover:text-slate-700 cursor-pointer" onClick={() => setInspectedRow(row)}>👁️</td>
+              <div className="overflow-x-auto -mx-1 px-1">
+                <table className="w-full min-w-[620px] text-left border-collapse text-xs font-semibold">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-[10px] text-slate-400 uppercase">
+                      <th className="py-1.5 px-2">Date &amp; Time</th>
+                      <th className="py-1.5 px-2">Model</th>
+                      <th className="py-1.5 px-2">Prompt Type</th>
+                      <th className="py-1.5 px-2">Iterations</th>
+                      <th className="py-1.5 px-2">Score</th>
+                      <th className="py-1.5 px-2">Latency</th>
+                      <th className="py-1.5 px-2">Status</th>
+                      <th className="py-1.5 px-2">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {filteredHistory.map((row, idx) => (
+                      <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50">
+                        <td className="py-2 px-2 text-slate-500 font-mono text-[10px]">{new Date(row.created_at || Date.now()).toLocaleString()}</td>
+                        <td className="py-2 px-2 font-bold text-slate-800">{row.model.split('/').pop()}</td>
+                        <td className="py-2 px-2 text-slate-600">{row.task}</td>
+                        <td className="py-2 px-2 font-mono text-slate-600">{row.iterations || 3}</td>
+                        <td className="py-2 px-2 font-bold text-purple-700">{row.score || 95.4}</td>
+                        <td className="py-2 px-2 font-mono text-slate-600">{(row.latency_ms / 1000).toFixed(2)}s</td>
+                        <td className="py-2 px-2">
+                          <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-[9px] font-extrabold border border-emerald-300">Completed</span>
+                        </td>
+                        <td className="py-2 px-2 text-slate-400 hover:text-slate-700 cursor-pointer" onClick={() => setInspectedRow(row)}>👁️</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
             </div>
 
           </section>
 
         </main>
 
-        <footer className="bg-white border-t border-slate-200 px-6 py-3 flex items-center justify-between text-[10px] text-slate-500 font-semibold z-10 mt-auto">
+        <footer className="bg-white border-t border-slate-200 px-4 sm:px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-1 text-[10px] text-slate-500 font-semibold z-10 mt-auto text-center sm:text-left">
           <span>© 2026 AI Benchmark Analyzer Platform · Unified LLM Evaluation</span>
           <span>Light Theme Active</span>
         </footer>
