@@ -68,23 +68,18 @@ import {
 const DEFAULT_MODELS_GROUPED = {
   "Google Gemini": [
     "gemini-3.5-flash",
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
+    "gemini-2.5-flash"
   ],
   "Groq API": [
     "groq/llama-3.3-70b-versatile",
     "groq/llama-3.1-8b-instant",
-    "groq/mixtral-8x7b-32768",
   ],
-  "OpenRouter (Free)": [
-    "openrouter/google/gemma-4-31b-it:free",
-    "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-    "openrouter/meta-llama/llama-3.2-3b-instruct:free",
-    "openrouter/nousresearch/hermes-3-llama-3.1-405b:free",
+  "OpenRouter Models": [
+    "openrouter/openrouter/free",
+    "openrouter/google/gemma-4-26b-a4b-it:free",
+    "openrouter/nvidia/nemotron-3-nano-30b-a3b:free"
   ],
-  "Ollama / Custom": [
-    "gpt-oss:20b-cloud",
-    "gpt-oss:120b-cloud",
+  "Ollama / Custom Cloud": [
   ],
 };
 
@@ -121,8 +116,6 @@ const NAV_ITEMS = [
   { name: 'Analytics', icon: BarChart3 },
   { name: 'Playground', icon: Code },
   { name: 'Prompt Library', icon: Database },
-  { name: 'API Keys', icon: Key },
-  { name: 'Settings', icon: Settings },
 ];
 
 function generateSessionId() {
@@ -135,8 +128,8 @@ function generateSessionId() {
 function getGroupForModel(model) {
   if (model.startsWith("gemini-")) return "Google Gemini";
   if (model.startsWith("groq/")) return "Groq API";
-  if (model.startsWith("openrouter/")) return "OpenRouter (Free)";
-  return "Ollama / Custom";
+  if (model.startsWith("openrouter/")) return "OpenRouter Models";
+  return "Ollama / Custom Cloud";
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -144,7 +137,7 @@ function getGroupForModel(model) {
 export default function BenchmarkDashboard() {
   // Config state
   const [config, setConfig] = useState({
-    env: { ollamaApiKey: '', ollamaHost: 'https://ollama.com', geminiApiKey: '', groqApiKey: '', openRouterApiKey: '' },
+    env: { ollamaApiKey: '', ollamaHost: 'http://localhost:11434', geminiApiKey: '', groqApiKey: '', openRouterApiKey: '' },
     config: { models: [], tasks: [], iterations: 3 }
   });
   const [modelsGrouped, setModelsGrouped] = useState(structuredClone(DEFAULT_MODELS_GROUPED));
@@ -159,7 +152,6 @@ export default function BenchmarkDashboard() {
   const [activeNav, setActiveNav] = useState('Overview');
   const [searchModelQuery, setSearchModelQuery] = useState('');
   const [providerFilter, setProviderFilter] = useState('All');
-  const [isApiKeysModalOpen, setIsApiKeysModalOpen] = useState(false);
   const [inspectedRow, setInspectedRow] = useState(null);
 
   // API Key Inputs in Modal
@@ -281,8 +273,6 @@ export default function BenchmarkDashboard() {
       document.getElementById('history-section')?.scrollIntoView({ behavior: 'smooth' });
     } else if (navName === 'Analytics') {
       document.getElementById('analytics-section')?.scrollIntoView({ behavior: 'smooth' });
-    } else if (navName === 'API Keys' || navName === 'Settings') {
-      setIsApiKeysModalOpen(true);
     }
   };
 
@@ -664,41 +654,7 @@ export default function BenchmarkDashboard() {
             ))}
           </div>
 
-          {/* API Keys Configuration Modal */}
-          {isApiKeysModalOpen && (
-            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in">
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6 space-y-4 mx-4 animate-scale-up">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                  <h3 className="font-bold text-base flex items-center gap-2 text-slate-900">
-                    <Key className="w-5 h-5 text-purple-600" /> API Keys & Provider Settings
-                  </h3>
-                  <button onClick={() => setIsApiKeysModalOpen(false)} className="p-1 rounded-lg text-slate-400 hover:text-slate-700">
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-
-                <div className="space-y-3 text-xs">
-                  <div>
-                    <label className="text-slate-600 font-semibold block mb-1">Google Gemini API Key</label>
-                    <input type="password" value={geminiKeyInput} onChange={e => setGeminiKeyInput(e.target.value)} placeholder="AIzaSy..." className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800" />
-                  </div>
-                  <div>
-                    <label className="text-slate-600 font-semibold block mb-1">Groq API Key</label>
-                    <input type="password" value={groqKeyInput} onChange={e => setGroqKeyInput(e.target.value)} placeholder="gsk_..." className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800" />
-                  </div>
-                  <div>
-                    <label className="text-slate-600 font-semibold block mb-1">OpenRouter API Key</label>
-                    <input type="password" value={openRouterKeyInput} onChange={e => setOpenRouterKeyInput(e.target.value)} placeholder="sk-or-..." className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800" />
-                  </div>
-                </div>
-
-                <div className="pt-2 flex justify-end gap-2">
-                  <button onClick={() => setIsApiKeysModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 font-semibold text-xs rounded-xl">Cancel</button>
-                  <button onClick={handleSaveConfigKeys} className="px-4 py-2 bg-purple-600 text-white font-bold text-xs rounded-xl shadow-md">Save Keys</button>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* API Keys Configuration Modal Removed */}
 
           {/* Inspected History Row Modal */}
           {inspectedRow && (
@@ -805,9 +761,9 @@ export default function BenchmarkDashboard() {
                 <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
                   <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">1</span> Select Models <span className="text-xs text-slate-400 font-normal">({selectedModels.length} selected)</span>
                 </h3>
-                <div className="flex gap-2">
-                  <button onClick={handleSelectAllModels} className="text-[10px] text-purple-600 font-bold hover:underline">Select All</button>
-                  <button onClick={handleClearAllModels} className="text-[10px] text-slate-500 hover:underline">Clear All</button>
+                <div className="flex gap-1.5">
+                  <button onClick={handleSelectAllModels} className="text-[11px] px-2 py-1 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition-colors font-semibold">Select All</button>
+                  <button onClick={handleClearAllModels} className="text-[11px] px-2 py-1 bg-slate-100 text-slate-600 rounded-md hover:bg-slate-200 transition-colors font-semibold">Clear All</button>
                 </div>
               </div>
 
@@ -855,10 +811,7 @@ export default function BenchmarkDashboard() {
               </div>
 
               <div className="pt-3 border-t border-slate-200 flex justify-between text-xs text-slate-500 font-medium mt-2 md:mt-0">
-                <span>{selectedModels.length} of 36 selected</span>
-                <button onClick={() => setIsApiKeysModalOpen(true)} className="text-purple-600 font-semibold hover:underline flex items-center gap-1">
-                  <Key className="w-3 h-3" /> Config Keys
-                </button>
+                <span>{selectedModels.length} selected</span>
               </div>
             </div>
 

@@ -39,8 +39,13 @@ import {
   RefreshCw,
   AlertCircle,
   XCircle,
-  KeyRound
+  KeyRound,
+  FileText
 } from 'lucide-react';
+import {
+  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, ZAxis,
+  BarChart, Bar, Legend
+} from 'recharts';
 
 // ─── 15 Simple Beginner-Friendly JavaScript Presets ──────────────────────────
 const PRESETS = [
@@ -56,7 +61,6 @@ const PRESETS = [
   { label: 'Find Array Sum', prompt: 'Write a JavaScript function that calculates the sum of all numbers in an array.' },
   { label: 'Find Maximum Value in Array', prompt: 'Write a JavaScript function to find the maximum number in an array.' },
   { label: 'Sort an Array', prompt: 'Write a JavaScript program to sort an array of numbers in ascending order.' },
-  { label: 'Simple Calculator', prompt: 'Write a JavaScript program for a basic calculator supporting addition, subtraction, multiplication, and division.' },
   { label: 'Basic Object Manipulation', prompt: 'Write a JavaScript snippet that creates a student object with properties (name, age, grade) and updates the grade.' },
   { label: 'Basic Function Creation', prompt: 'Write a JavaScript function called greetUser that accepts a name string and returns a greeting message.' },
 ];
@@ -65,15 +69,10 @@ export default function PlaygroundPage() {
   const [activeNav, setActiveNav] = useState('Run Benchmark');
 
   // Dynamic Available Models State
-  const [availableModels, setAvailableModels] = useState([
-    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'Google Gemini', icon: '✨', score: 95.4, cost: '$0.002', hasKey: true },
-    { id: 'groq/llama-3.3-70b-versatile', name: 'Llama 3.3 70B', provider: 'Groq', icon: '♾️', score: 89.7, cost: '$0.001', hasKey: true },
-    { id: 'openrouter/google/gemma-4-31b-it:free', name: 'Gemma 4 31B (Free)', provider: 'OpenRouter', icon: '💎', score: 88.5, cost: 'Free', hasKey: true },
-    { id: 'groq/mixtral-8x7b-32768', name: 'Mixtral 8x7B', provider: 'Groq', icon: '🌀', score: 87.2, cost: '$0.002', hasKey: true }
-  ]);
+  const [availableModels, setAvailableModels] = useState([]);
 
   // Selected Models IDs
-  const [selectedModelIds, setSelectedModelIds] = useState(['gemini-2.5-pro', 'groq/llama-3.3-70b-versatile']);
+  const [selectedModelIds, setSelectedModelIds] = useState(['groq/llama-3.3-70b-versatile', 'groq/llama-3.1-8b-instant']);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const dropdownRef = useRef(null);
@@ -85,14 +84,13 @@ export default function PlaygroundPage() {
   
   // Modal Visibility States
   const [isPromptLibraryOpen, setIsPromptLibraryOpen] = useState(false);
-  const [isKeysModalOpen, setIsKeysModalOpen] = useState(false);
-  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
-  const [isLiveRunsOpen, setIsLiveRunsOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const reportRef = useRef(null);
+  const [isExporting, setIsExporting] = useState(false);
 
-  // API Keys
-  const [apiKeys, setApiKeys] = useState({ geminiApiKey: '', groqApiKey: '', openRouterApiKey: '' });
+  const exportToPDF = () => {
+    window.print();
+  };
 
   // Fetch Available Models Dynamically
   const fetchAvailableModels = async () => {
@@ -100,7 +98,7 @@ export default function PlaygroundPage() {
       const res = await fetch('/api/models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKeys })
+        body: JSON.stringify({})
       });
       const data = await res.json();
       if (data.success && data.models) {
@@ -110,8 +108,17 @@ export default function PlaygroundPage() {
   };
 
   useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/config');
+        const data = await res.json();
+        if (data && data.config?.models?.length) {
+          setSelectedModelIds(data.config.models);
+        }
+      } catch (e) {}
+    })();
     fetchAvailableModels();
-  }, [apiKeys]);
+  }, []);
 
   // Results State: map of modelId -> { text, streaming, metrics, error }
   const [modelOutputs, setModelOutputs] = useState({});
@@ -120,6 +127,7 @@ export default function PlaygroundPage() {
   const [runHistory, setRunHistory] = useState([]);
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [abortControllers, setAbortControllers] = useState({});
   const [copiedModelId, setCopiedModelId] = useState(null);
 
   // Live Sandbox Modal
@@ -150,6 +158,28 @@ export default function PlaygroundPage() {
     });
   };
 
+  const handleSelectAllPlaygroundModels = (e) => {
+    e.stopPropagation();
+    const availableWithKey = availableModels.filter(m => m.hasKey).map(m => m.id);
+    setSelectedModelIds(availableWithKey);
+  };
+
+  const handleClearAllPlaygroundModels = (e) => {
+    e.stopPropagation();
+    setSelectedModelIds([]);
+  };
+
+  const handleStopAll = () => {
+    Object.values(abortControllers).forEach(controller => controller.abort());
+    setIsGenerating(false);
+  };
+
+  const handleStopModel = (modelId) => {
+    if (abortControllers[modelId]) {
+      abortControllers[modelId].abort();
+    }
+  };
+
   // Submit Prompt Handler (Streams all selected models concurrently using real APIs)
   const handleRunBenchmark = async (overridePrompt = null) => {
     const activePrompt = overridePrompt || promptText;
@@ -158,6 +188,12 @@ export default function PlaygroundPage() {
     setIsGenerating(true);
 
     const activeModels = availableModels.filter(m => selectedModelIds.includes(m.id));
+
+    const controllers = {};
+    activeModels.forEach(m => {
+      controllers[m.id] = new AbortController();
+    });
+    setAbortControllers(controllers);
 
     // Reset outputs for selected models
     setModelOutputs(prev => {
@@ -179,11 +215,11 @@ export default function PlaygroundPage() {
         const response = await fetch('/api/run-single', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: controllers[modelId].signal,
           body: JSON.stringify({
             model: modelId,
             task: 'JavaScript Program',
-            prompt: systemPrompt ? `System: ${systemPrompt}\n\nUser: ${activePrompt}` : activePrompt,
-            apiKeys
+            prompt: systemPrompt ? `System: ${systemPrompt}\n\nUser: ${activePrompt}` : activePrompt
           })
         });
 
@@ -222,7 +258,7 @@ export default function PlaygroundPage() {
                     text: fullText,
                     streaming: false,
                     error: apiErrorMsg,
-                    metrics: { latency: elapsedSec, score: isSuccess ? (modelObj.score || 90) : 0, tokens: msg.data.tokens || 0, cost: modelObj.cost || '$0.002' }
+                    metrics: { latency: isSuccess ? elapsedSec : 'Failed', score: isSuccess ? (modelObj.score || 90) : 0, tokens: msg.data.tokens || 0, cost: modelObj.cost || '$0.002' }
                   }
                 }));
               } else if (msg.type === 'log' && msg.text) {
@@ -265,6 +301,9 @@ export default function PlaygroundPage() {
         });
 
       } catch (err) {
+        let isAbort = err.name === 'AbortError';
+        let errorMsg = isAbort ? 'Cancelled by user.' : (err.message || 'API request failed.');
+
         runResults.push({
           id: modelId,
           name: modelObj.name,
@@ -281,17 +320,19 @@ export default function PlaygroundPage() {
         setModelOutputs(prev => ({
           ...prev,
           [modelId]: {
-            text: '',
+            ...prev[modelId],
+            text: fullText || (isAbort ? '' : 'Error: ' + errorMsg),
             streaming: false,
-            error: err.message || 'API request failed.',
-            metrics: { latency: 'Failed', score: 0, tokens: 0, cost: '$0.000' }
+            error: isAbort ? null : errorMsg,
+            metrics: { ...(prev[modelId]?.metrics || {}), latency: isAbort ? 'Stopped' : 'Failed' }
           }
         }));
       }
     });
 
-    await Promise.all(streamPromises);
+    await Promise.allSettled(streamPromises);
     setIsGenerating(false);
+    setAbortControllers({});
 
     // Save run record to dynamic history
     if (runResults.length > 0) {
@@ -377,11 +418,31 @@ export default function PlaygroundPage() {
   const extractExecutableCode = (rawText) => {
     if (!rawText) return '';
 
-    // Match code blocks with any language identifier (e.g. ```html, ```javascript, ```css, etc.)
-    const codeBlockRegex = /```[a-zA-Z0-9_+#-]*[ \t]*\n?([\s\S]*?)```/gi;
+    // Match code blocks and capture their language identifier
+    const codeBlockRegex = /```([a-zA-Z0-9_+#-]*)[ \t]*\n?([\s\S]*?)```/gi;
     const matches = [...rawText.matchAll(codeBlockRegex)];
     if (matches.length > 0) {
-      return matches.map(m => m[1].trim()).join('\n\n');
+      // If there's an HTML or CSS block, we treat this as a UI response
+      const isUiComponent = matches.some(m => {
+        const l = (m[1] || '').toLowerCase();
+        return l === 'html' || l === 'css' || l === 'style';
+      });
+      
+      if (isUiComponent) {
+        return matches.map(m => {
+          const lang = (m[1] || '').toLowerCase();
+          const code = m[2].trim();
+          if (lang === 'css' || lang === 'style') {
+            return `<style>\n${code}\n</style>`;
+          } else if (lang === 'javascript' || lang === 'js') {
+            return `<script>\n${code}\n</script>`;
+          }
+          return code;
+        }).join('\n\n');
+      } else {
+        // Otherwise just return the raw code blocks joined together (e.g. pure JS execution)
+        return matches.map(m => m[2].trim()).join('\n\n');
+      }
     }
 
     // Fallback: strip leading ```language and trailing ```
@@ -669,8 +730,19 @@ export default function PlaygroundPage() {
           };
 
           window.onerror = function(msg, url, line, col, err) {
-            const errStr = 'Runtime Error: ' + msg + (line ? ' (Line ' + line + ')' : '');
-            appendLine('error', errStr);
+            let errStr = 'Runtime Error: ' + msg + (line ? ' (Line ' + line + ')' : '');
+            
+            const isNodeError = msg.includes('require is not defined') || 
+                                msg.includes('process is not defined') || 
+                                msg.includes('module is not defined');
+                                
+            if (isNodeError) {
+              errStr += '<br><br><span style="color:#fde047">⚠️ <b>Environment Mismatch:</b> This sandbox runs in a browser environment, but the AI generated Node.js code. Node.js features like <code>require()</code> or <code>process</code> are not available here.</span>';
+              appendLine('error', errStr, true);
+            } else {
+              appendLine('error', errStr);
+            }
+            
             badge.textContent = '🔴 Failed';
             badge.style.color = '#ef4444';
             return true;
@@ -703,9 +775,9 @@ export default function PlaygroundPage() {
               badge.style.color = '#f59e0b';
             } else {
               // Remove leading language tag if present
-              codeToExec = codeToExec.replace(/^(?:html|javascript|js|css|json|ts|typescript|xml)\s*\n?/i, '').trim();
+              codeToExec = codeToExec.replace(/^(?:html|javascript|js|css|json|ts|typescript|xml)\\s*\\n?/i, '').trim();
 
-              const isHtmlCode = /^\s*<(!DOCTYPE|html|div|h1|p|body|table|style|script|span|form|button)/i.test(codeToExec);
+              const isHtmlCode = /^\\s*<([a-z]+|!DOCTYPE|!--|\\?xml)/i.test(codeToExec);
 
               if (isHtmlCode) {
                 appendLine('info', 'ℹ️ Rendered HTML Preview:');
@@ -713,17 +785,36 @@ export default function PlaygroundPage() {
                 previewDiv.id = 'html-preview';
                 previewDiv.innerHTML = codeToExec;
                 out.appendChild(previewDiv);
+
+                // innerHTML does not execute <script> tags by default. Manually execute them.
+                const scripts = previewDiv.querySelectorAll('script');
+                scripts.forEach(s => {
+                  if (s.textContent) {
+                    const newScript = document.createElement('script');
+                    newScript.textContent = s.textContent;
+                    out.appendChild(newScript);
+                  }
+                });
+
+                // Since we injected the HTML dynamically after the real page load, 
+                // any scripts waiting for DOMContentLoaded or load events will be stuck. 
+                // We manually dispatch them here to trigger initialization logic.
+                setTimeout(() => {
+                  document.dispatchEvent(new Event('DOMContentLoaded'));
+                  window.dispatchEvent(new Event('load'));
+                }, 10);
+
                 const elapsed = (performance.now() - startTime).toFixed(1);
                 badge.textContent = '🟢 HTML Rendered (' + elapsed + 'ms)';
                 badge.style.color = '#10b981';
               } else {
                 // Strip ES Module import/export statements for standard browser execution
                 codeToExec = codeToExec
-                  .replace(/^import\s+[\s\S]*?from\s+['"].*?['"];?/gm, '')
-                  .replace(/^import\s+['"].*?['"];?/gm, '')
-                  .replace(/^export\s+default\s+/gm, '')
-                  .replace(/^export\s+\{[^}]*\};?/gm, '')
-                  .replace(/^export\s+(const|let|var|function|class)/gm, '$1');
+                  .replace(/^import\\s+[\\s\\S]*?from\\s+['"].*?['"];?/gm, '')
+                  .replace(/^import\\s+['"].*?['"];?/gm, '')
+                  .replace(/^export\\s+default\\s+/gm, '')
+                  .replace(/^export\\s+\\{[^}]*\\};?/gm, '')
+                  .replace(/^export\\s+(const|let|var|function|class)/gm, '$1');
 
                 const result = eval(codeToExec);
                 const elapsed = (performance.now() - startTime).toFixed(1);
@@ -734,7 +825,7 @@ export default function PlaygroundPage() {
 
                 // If no console output was generated, check for declared functions and auto-invoke them with sample args
                 if (out.children.length === 0) {
-                  const fnMatches = [...codeToExec.matchAll(/(?:function\s+([a-zA-Z0-9_$]+)|const\s+([a-zA-Z0-9_$]+)\s*=\s*(?:\([^)]*\)|[a-zA-Z0-9_$]+)\s*=>)/g)];
+                  const fnMatches = [...codeToExec.matchAll(/(?:function\\s+([a-zA-Z0-9_$]+)|const\\s+([a-zA-Z0-9_$]+)\\s*=\\s*(?:\\([^)]*\\)|[a-zA-Z0-9_$]+)\\s*=>)/g)];
                   const fnNames = fnMatches.map(m => m[1] || m[2]).filter(Boolean);
 
                   let invokedAny = false;
@@ -776,13 +867,61 @@ export default function PlaygroundPage() {
     `;
   };
 
-  const activeModelsList = availableModels.filter(m => selectedModelIds.includes(m.id));
+  const activeModelsList = availableModels.filter(m => selectedModelIds.includes(m.id) && m.hasKey);
+
+  const performanceChartData = useMemo(() => {
+    const data = [];
+    activeModelsList.forEach((model, index) => {
+      const output = modelOutputs[model.id];
+      if (output && output.metrics && output.metrics.latency !== '...' && output.metrics.latency !== 'Failed' && output.metrics.latency !== 'Stopped') {
+        const latencySec = parseFloat(output.metrics.latency);
+        const tokens = parseInt(output.metrics.tokens, 10) || 0;
+        const speed = latencySec > 0 ? Math.round(tokens / latencySec) : 0;
+        
+        let cost = 0;
+        if (typeof output.metrics.cost === 'string') {
+          cost = parseFloat(output.metrics.cost.replace('$', '')) || 0;
+        } else if (typeof output.metrics.cost === 'number') {
+          cost = output.metrics.cost;
+        }
+
+        const colors = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#84cc16', '#64748b', '#f97316'];
+
+        data.push({
+          id: model.id,
+          name: model.name,
+          provider: model.provider,
+          speed,
+          cost,
+          latency: latencySec,
+          tokens,
+          fill: colors[index % colors.length]
+        });
+      }
+    });
+    return data;
+  }, [activeModelsList, modelOutputs]);
+
+  const CustomTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+        <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-lg text-xs">
+          <p className="font-bold text-slate-900 mb-1">{data.provider} - {data.name}</p>
+          <p className="text-emerald-600 font-semibold">Speed: {data.speed} tokens/sec</p>
+          <p className="text-rose-600 font-semibold">Cost: ${data.cost.toFixed(4)}</p>
+          <p className="text-slate-500 mt-1">Latency: {data.latency}s | Tokens: {data.tokens}</p>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
-    <div className="flex min-h-screen font-sans transition-colors duration-200 bg-[#f8fafc] text-slate-900">
+    <div className="flex min-h-screen font-sans transition-colors duration-200 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-50 via-white to-purple-50 text-slate-900 print:block print:bg-white print:min-h-0">
 
       {/* ─── 1. LEFT SIDEBAR NAVIGATION ───────────────────────────────────── */}
-      <aside className="w-64 border-r border-slate-200 bg-white flex flex-col justify-between flex-shrink-0">
+      <aside className="w-64 border-r border-slate-200/50 bg-white/40 backdrop-blur-xl flex flex-col justify-between flex-shrink-0 print:hidden">
         
         <div className="p-5 space-y-6">
           {/* Logo Branding */}
@@ -811,15 +950,9 @@ export default function PlaygroundPage() {
           {/* Main Navigation Links */}
           <nav className="space-y-1 text-xs font-bold">
             {[
-              { label: 'Overview', icon: LayoutGrid, action: () => setIsAnalyticsOpen(true) },
               { label: 'Run Benchmark', icon: Play, active: true },
-              { label: 'Live Runs', icon: Activity, badge: 'Live', action: () => setIsLiveRunsOpen(true) },
-              { label: 'Leaderboard', icon: Trophy, action: () => setIsLeaderboardOpen(true) },
               { label: 'Compare Models', icon: Sliders, action: () => setIsModelDropdownOpen(true) },
-              { label: 'History', icon: History, action: () => setIsHistoryOpen(true) },
-              { label: 'Analytics', icon: BarChart3, action: () => setIsAnalyticsOpen(true) },
               { label: 'Prompt Library', icon: Bookmark, action: () => setIsPromptLibraryOpen(true) },
-              { label: 'API Keys', icon: Key, action: () => setIsKeysModalOpen(true) },
             ].map((item, idx) => {
               const Icon = item.icon;
               return (
@@ -863,19 +996,19 @@ export default function PlaygroundPage() {
       </aside>
 
       {/* ─── 2. MAIN WORKSPACE CONTAINER ─────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto print:hidden">
 
         {/* Clean Header (No User Profile Section) */}
-        <header className="h-16 border-b border-slate-200 bg-white px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+        <header className="h-16 border-b border-slate-200/50 bg-white/40 backdrop-blur-xl px-6 flex items-center justify-between sticky top-0 z-30 shadow-sm">
           
-          <div className="flex items-center gap-4">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Selected Models</span>
+          <div className="flex items-center gap-4 flex-1 min-w-0 pr-4">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0">Selected Models</span>
             
             {/* Dynamic Model Selector Dropdown Trigger Button */}
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-bold flex items-center gap-2 cursor-pointer transition"
+                className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-bold flex items-center gap-2 cursor-pointer transition shrink-0"
               >
                 <span className="w-2 h-2 rounded-full bg-purple-600" />
                 <span>{selectedModelIds.length} Models Selected</span>
@@ -896,8 +1029,13 @@ export default function PlaygroundPage() {
                     />
                   </div>
 
+                  <div className="flex gap-1.5 pb-1">
+                    <button onClick={handleSelectAllPlaygroundModels} className="flex-1 text-[11px] py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition-colors font-semibold">Select All</button>
+                    <button onClick={handleClearAllPlaygroundModels} className="flex-1 text-[11px] py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors font-semibold">Clear All</button>
+                  </div>
+
                   <div className="max-h-64 overflow-y-auto space-y-1">
-                    {availableModels.filter(m => m.name.toLowerCase().includes(modelSearchQuery.toLowerCase()) || m.provider.toLowerCase().includes(modelSearchQuery.toLowerCase())).map(m => {
+                    {availableModels.filter(m => m.hasKey && (m.name.toLowerCase().includes(modelSearchQuery.toLowerCase()) || m.provider.toLowerCase().includes(modelSearchQuery.toLowerCase()))).map(m => {
                       const isSelected = selectedModelIds.includes(m.id);
                       return (
                         <div
@@ -914,11 +1052,7 @@ export default function PlaygroundPage() {
                             <div>
                               <div className="font-bold">{m.provider} - {m.name}</div>
                               <div className="flex items-center gap-2 text-[10px]">
-                                {m.hasKey ? (
-                                  <span className="text-emerald-600 font-bold flex items-center gap-0.5">✓ Ready</span>
-                                ) : (
-                                  <span className="text-amber-600 font-bold flex items-center gap-0.5">⚠️ Key Required</span>
-                                )}
+                                <span className="text-emerald-600 font-bold flex items-center gap-0.5">✓ Ready</span>
                                 <span className="text-slate-400">• {m.cost}</span>
                               </div>
                             </div>
@@ -933,15 +1067,19 @@ export default function PlaygroundPage() {
             </div>
 
             {/* Selected Active Model Badges */}
-            <div className="hidden lg:flex items-center gap-1.5">
+            <div 
+              className="hidden lg:flex items-center gap-1.5 overflow-x-auto flex-1 [&::-webkit-scrollbar]:hidden"
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
               {activeModelsList.map(m => (
                 <span
                   key={m.id}
-                  className="px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-700 flex items-center gap-1.5"
+                  title={`${m.provider} - ${m.name}`}
+                  className="px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-700 flex items-center gap-1.5 shrink-0 max-w-[160px]"
                 >
-                  <span>{m.icon}</span>
-                  <span>{m.provider} - {m.name}</span>
-                  <button onClick={() => toggleModelSelection(m.id)} className="text-slate-400 hover:text-slate-700">
+                  <span className="shrink-0">{m.icon}</span>
+                  <span className="truncate">{m.provider} - {m.name}</span>
+                  <button onClick={() => toggleModelSelection(m.id)} className="text-slate-400 hover:text-slate-700 shrink-0">
                     <X className="w-3 h-3" />
                   </button>
                 </span>
@@ -950,19 +1088,12 @@ export default function PlaygroundPage() {
           </div>
 
           {/* Clean Action Buttons (No Profile Badge) */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={() => setIsPromptLibraryOpen(true)}
               className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer transition"
             >
               <Bookmark className="w-3.5 h-3.5 text-purple-600" /> 15 JS Presets
-            </button>
-
-            <button
-              onClick={() => setIsKeysModalOpen(true)}
-              className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-sm"
-            >
-              <KeyRound className="w-3.5 h-3.5" /> Configure API Keys
             </button>
           </div>
 
@@ -972,7 +1103,7 @@ export default function PlaygroundPage() {
         <div className="p-6 space-y-6 max-w-[1400px] w-full mx-auto">
 
           {/* ─── 3. PROMPT INPUT CARD ────────────────────────────────────────── */}
-          <section className="border border-slate-200 rounded-3xl p-5 shadow-xl space-y-4 transition-colors bg-white text-slate-900">
+          <section className="border border-white/60 rounded-3xl p-5 shadow-2xl shadow-purple-900/5 space-y-4 transition-all bg-white/60 backdrop-blur-2xl text-slate-900 hover:shadow-purple-900/10">
             <div className="flex items-center justify-between">
               <h2 className="font-extrabold text-sm flex items-center gap-2 text-slate-900">
                 Enter your JavaScript query
@@ -1013,17 +1144,19 @@ export default function PlaygroundPage() {
                 </div>
 
                 <button
-                  onClick={() => handleRunBenchmark()}
-                  disabled={isGenerating || !promptText.trim()}
+                  onClick={isGenerating ? handleStopAll : () => handleRunBenchmark()}
+                  disabled={!isGenerating && !promptText.trim()}
                   className={`px-6 py-2.5 rounded-2xl font-extrabold text-xs flex items-center gap-2 shadow-lg transition cursor-pointer ${
-                    isGenerating || !promptText.trim()
-                      ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                      : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-600/30'
+                    isGenerating
+                      ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-600/30'
+                      : !promptText.trim()
+                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                        : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-600/30'
                   }`}
                 >
                   {isGenerating ? (
                     <>
-                      <RefreshCw className="w-4 h-4 animate-spin" /> Calling Model APIs...
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Calling APIs... <span className="mx-1 opacity-50">|</span> <XCircle className="w-4 h-4 ml-1" /> Stop All
                     </>
                   ) : (
                     <>
@@ -1057,7 +1190,7 @@ export default function PlaygroundPage() {
               return (
                 <div
                   key={model.id}
-                  className="border border-slate-200 rounded-3xl p-5 shadow-xl flex flex-col justify-between transition-all bg-white text-slate-900 relative"
+                  className="border border-white/60 rounded-3xl p-5 shadow-xl shadow-indigo-900/5 flex flex-col justify-between transition-all duration-300 bg-white/60 backdrop-blur-2xl text-slate-900 relative hover:-translate-y-1 hover:shadow-indigo-900/15"
                 >
                   
                   {/* Model Output Header */}
@@ -1077,6 +1210,14 @@ export default function PlaygroundPage() {
 
                       {/* Performance Metrics Pills */}
                       <div className="flex items-center gap-3 text-xs font-mono">
+                        {output.streaming && (
+                          <button
+                            onClick={() => handleStopModel(model.id)}
+                            className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-100 hover:bg-red-200 rounded-lg flex items-center gap-1 transition-colors"
+                          >
+                            <XCircle className="w-3 h-3" /> Stop
+                          </button>
+                        )}
                         <div className="text-right">
                           <span className="text-[10px] text-slate-400 font-bold block">LATENCY</span>
                           <span className="font-bold text-slate-900">{output.metrics.latency}</span>
@@ -1112,12 +1253,7 @@ export default function PlaygroundPage() {
                             <span>API Configuration Required</span>
                           </div>
                           <p className="text-[11px] leading-relaxed font-mono">{output.error}</p>
-                          <button
-                            onClick={() => setIsKeysModalOpen(true)}
-                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1 mt-2"
-                          >
-                            <Key className="w-3.5 h-3.5" /> Add API Key
-                          </button>
+                          <p className="text-[10px] text-rose-600 font-medium">Please configure the corresponding API key inside the server's environment variables or local <code>config.json</code> file.</p>
                         </div>
                       )}
 
@@ -1192,7 +1328,7 @@ export default function PlaygroundPage() {
       </div>
 
       {/* ─── 5. RIGHT SIDEBAR BENCHMARK SUMMARY (DYNAMIC DATA) ───────────── */}
-      <aside className="w-80 border-l border-slate-200 bg-white p-5 flex flex-col justify-between flex-shrink-0 text-slate-900">
+      <aside className="w-80 border-l border-slate-200/50 bg-white/40 backdrop-blur-xl p-5 flex flex-col justify-between flex-shrink-0 text-slate-900 print:hidden">
         <div className="space-y-6">
 
           {!hasApiResponse ? (
@@ -1260,21 +1396,19 @@ export default function PlaygroundPage() {
                     <span className="font-bold text-slate-900 font-mono">{dynamicSummaryStats.totalTokens}</span>
                   </div>
                 </div>
+                
+                {/* View Full Report Button */}
+                <button
+                  onClick={() => setIsReportModalOpen(true)}
+                  className="w-full mt-4 py-2 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>View Full Report</span>
+                </button>
               </div>
             </>
           )}
 
-        </div>
-
-        {/* Configure API Keys Shortcut Button */}
-        <div className="pt-4 border-t border-slate-200">
-          <button
-            onClick={() => setIsKeysModalOpen(true)}
-            className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-md"
-          >
-            <KeyRound className="w-4 h-4" />
-            <span>Configure API Keys</span>
-          </button>
         </div>
       </aside>
 
@@ -1313,6 +1447,141 @@ export default function PlaygroundPage() {
           </div>
         </div>
       )}
+
+      {/* ─── MODAL: COMPREHENSIVE PERFORMANCE REPORT ────────────────────── */}
+      {isReportModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in print:static print:bg-transparent print:p-0 print:block">
+          <div className="border border-slate-200 bg-white text-slate-900 rounded-3xl shadow-2xl max-w-5xl w-full flex flex-col max-h-[90vh] print:max-h-none print:shadow-none print:border-none print:block">
+            <div className="flex items-center justify-between border-b border-slate-200 p-6 flex-shrink-0 print:hidden">
+              <h3 className="font-extrabold text-lg flex items-center gap-2">
+                <BarChart3 className="w-6 h-6 text-purple-600" /> Comprehensive Performance Report
+              </h3>
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={exportToPDF}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition"
+                >
+                  <Download className="w-4 h-4" /> Export PDF
+                </button>
+                <button onClick={() => setIsReportModalOpen(false)} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto print:overflow-visible print:p-0">
+              <div className="space-y-8 bg-white p-4" ref={reportRef}>
+                
+                {/* PDF Header (Only visible in exported PDF but good for preview) */}
+                <div className="border-b border-slate-200 pb-4 mb-4">
+                  <h2 className="text-2xl font-black text-slate-900">AI Benchmark Analyzer - Performance Report</h2>
+                  <p className="text-slate-500 text-sm mt-1">Generated on {new Date().toLocaleString()}</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Scatter Chart (Speed vs Cost) */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                    <h4 className="font-bold text-sm mb-4">Speed vs. Cost Tradeoff</h4>
+                    <div className="h-64 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                          <XAxis type="number" dataKey="speed" name="Speed" unit=" t/s" tick={{ fontSize: 10 }} />
+                          <YAxis type="number" dataKey="cost" name="Cost" unit="$" tick={{ fontSize: 10 }} />
+                          <ZAxis type="category" dataKey="name" name="Model" />
+                          <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} content={<CustomTooltip />} />
+                          <Scatter name="Models" data={performanceChartData}>
+                            {performanceChartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.fill} />
+                            ))}
+                          </Scatter>
+                        </ScatterChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Bar Chart (Latency) */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                    <h4 className="font-bold text-sm mb-4">Latency Comparison (Seconds)</h4>
+                    <div className="h-64 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={performanceChartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                          <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-30} textAnchor="end" height={60} />
+                          <YAxis tick={{ fontSize: 10 }} unit="s" />
+                          <RechartsTooltip />
+                          <Bar dataKey="latency" name="Latency (s)" radius={[4, 4, 0, 0]}>
+                            {performanceChartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.fill} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bar Chart (Speed) */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                  <h4 className="font-bold text-sm mb-4">Throughput Comparison (Tokens per Second)</h4>
+                  <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={performanceChartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
+                        <YAxis tick={{ fontSize: 10 }} unit=" t/s" />
+                        <RechartsTooltip />
+                        <Bar dataKey="speed" name="Tokens/sec" radius={[4, 4, 0, 0]}>
+                          {performanceChartData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Data Table */}
+                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
+                        <tr>
+                          <th className="px-4 py-3">Provider</th>
+                          <th className="px-4 py-3">Model</th>
+                          <th className="px-4 py-3 text-right">Latency</th>
+                          <th className="px-4 py-3 text-right">Tokens</th>
+                          <th className="px-4 py-3 text-right">Speed (t/s)</th>
+                          <th className="px-4 py-3 text-right">Cost</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {performanceChartData.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="px-4 py-3 font-semibold text-slate-700">{row.provider}</td>
+                            <td className="px-4 py-3 font-bold text-slate-900">{row.name}</td>
+                            <td className="px-4 py-3 text-right">{row.latency}s</td>
+                            <td className="px-4 py-3 text-right font-mono">{row.tokens}</td>
+                            <td className="px-4 py-3 text-right font-bold text-emerald-600">{row.speed}</td>
+                            <td className="px-4 py-3 text-right font-bold text-rose-600">${row.cost.toFixed(4)}</td>
+                          </tr>
+                        ))}
+                        {performanceChartData.length === 0 && (
+                          <tr>
+                            <td colSpan="6" className="px-4 py-8 text-center text-slate-500">No successful runs to display in the report.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* ─── MODAL: LIVE SANDBOX EXECUTION (BRIGHT THEME) ───────────────── */}
       {sandboxCode && (
@@ -1405,68 +1674,7 @@ export default function PlaygroundPage() {
         </div>
       )}
 
-      {/* ─── MODAL: API KEYS ────────────────────────────────────────────── */}
-      {isKeysModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="border border-slate-200 bg-white text-slate-900 rounded-3xl shadow-2xl max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="font-extrabold text-base flex items-center gap-2">
-                <Key className="w-5 h-5 text-purple-600" /> API Keys &amp; Configuration
-              </h3>
-              <button onClick={() => setIsKeysModalOpen(false)} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="text-slate-500 font-semibold block mb-1">Google Gemini Key</label>
-                <input
-                  type="password"
-                  value={apiKeys.geminiApiKey}
-                  onChange={e => setApiKeys(prev => ({ ...prev, geminiApiKey: e.target.value }))}
-                  placeholder="AIzaSy..."
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 text-slate-900 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="text-slate-500 font-semibold block mb-1">Groq Key</label>
-                <input
-                  type="password"
-                  value={apiKeys.groqApiKey}
-                  onChange={e => setApiKeys(prev => ({ ...prev, groqApiKey: e.target.value }))}
-                  placeholder="gsk_..."
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 text-slate-900 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="text-slate-500 font-semibold block mb-1">OpenRouter Key</label>
-                <input
-                  type="password"
-                  value={apiKeys.openRouterApiKey}
-                  onChange={e => setApiKeys(prev => ({ ...prev, openRouterApiKey: e.target.value }))}
-                  placeholder="sk-or-..."
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 text-slate-900 font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button
-                onClick={() => {
-                  setIsKeysModalOpen(false);
-                  fetchAvailableModels();
-                }}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer"
-              >
-                Save &amp; Connect API
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modal: API Keys modal removed */}
 
     </div>
   );

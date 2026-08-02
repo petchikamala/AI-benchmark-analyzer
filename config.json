@@ -8,12 +8,10 @@
   },
   "config": {
     "models": [
-      "groq/llama-3.3-70b-versatile",
-      "openrouter/google/gemma-4-31b-it:free",
-      "openrouter/openrouter/free",
-      "gpt-oss:20b-cloud",
-      "openrouter/meta-llama/llama-3.2-3b-instruct:free",
-      "groq/mixtral-8x7b-32768"
+      "gemini-3.5-flash",
+      "openrouter/google/gemma-2-9b-it:free",
+      "openrouter/meta-llama/llama-3.1-8b-instruct:free",
+      "openrouter/microsoft/phi-3-mini-128k-instruct:free"
     ],
     "tasks": [
       {
@@ -27,6 +25,6 @@
         "prompt": "Write a JavaScript function to reverse a singly linked list. Output only the code block."
       }
     ],
-    "iterations": 2
+    "iterations": 1
   }
 }

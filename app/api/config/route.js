@@ -28,7 +28,7 @@ const defaultTasks = [
 const defaultConfig = {
   env: {
     ollamaApiKey: process.env.OLLAMA_API_KEY || "",
-    ollamaHost: process.env.OLLAMA_HOST || "https://ollama.com",
+    ollamaHost: process.env.OLLAMA_HOST || "http://localhost:11434",
     geminiApiKey: process.env.GEMINI_API_KEY || "",
     groqApiKey: process.env.GROQ_API_KEY || "",
     openRouterApiKey: process.env.OPENROUTER_API_KEY || ""
@@ -90,7 +90,7 @@ export async function POST(request) {
     const payload = {
       env: {
         ollamaApiKey: env?.ollamaApiKey || "",
-        ollamaHost: env?.ollamaHost || "https://ollama.com",
+        ollamaHost: env?.ollamaHost || "http://localhost:11434",
         geminiApiKey: env?.geminiApiKey || "",
         groqApiKey: env?.groqApiKey || "",
         openRouterApiKey: env?.openRouterApiKey || ""

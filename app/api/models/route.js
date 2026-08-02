@@ -1,4 +1,10 @@
 import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
+import fs from 'fs';
+import path from 'path';
+import { Ollama } from 'ollama';
+
+const configFilePath = path.join(process.cwd(), 'config.json');
 
 // GET dynamically available LLM models based on provided/configured API keys
 export async function POST(request) {
@@ -6,111 +12,122 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
     const { apiKeys } = body;
 
-    const geminiKey = apiKeys?.geminiApiKey || process.env.GEMINI_API_KEY || "";
-    const groqKey = apiKeys?.groqApiKey || process.env.GROQ_API_KEY || "";
-    const openRouterKey = apiKeys?.openRouterApiKey || process.env.OPENROUTER_API_KEY || "";
-    const ollamaHost = apiKeys?.ollamaHost || process.env.OLLAMA_HOST || "http://localhost:11434";
+    let dbKeys = {};
+    let configuredModels = [];
 
-    const availableModels = [];
-
-    // 1. Google Gemini Models
-    availableModels.push({
-      id: 'gemini-2.5-pro',
-      name: 'Gemini 2.5 Pro',
-      provider: 'Google Gemini',
-      providerCategory: 'Google Gemini',
-      icon: '✨',
-      score: 95.4,
-      cost: '$0.002',
-      hasKey: Boolean(geminiKey),
-      keyName: 'Google Gemini Key'
-    });
-    availableModels.push({
-      id: 'gemini-1.5-flash',
-      name: 'Gemini 1.5 Flash',
-      provider: 'Google Gemini',
-      providerCategory: 'Google Gemini',
-      icon: '⚡',
-      score: 92.1,
-      cost: '$0.0005',
-      hasKey: Boolean(geminiKey),
-      keyName: 'Google Gemini Key'
-    });
-
-    // 2. Groq API Models
-    availableModels.push({
-      id: 'groq/llama-3.3-70b-versatile',
-      name: 'Llama 3.3 70B',
-      provider: 'Groq',
-      providerCategory: 'Groq API',
-      icon: '♾️',
-      score: 89.7,
-      cost: '$0.001',
-      hasKey: Boolean(groqKey),
-      keyName: 'Groq API Key'
-    });
-    availableModels.push({
-      id: 'groq/mixtral-8x7b-32768',
-      name: 'Mixtral 8x7B',
-      provider: 'Groq',
-      providerCategory: 'Groq API',
-      icon: '🌀',
-      score: 87.2,
-      cost: '$0.002',
-      hasKey: Boolean(groqKey),
-      keyName: 'Groq API Key'
-    });
-
-    // 3. OpenRouter API Models
-    availableModels.push({
-      id: 'openrouter/google/gemma-4-31b-it:free',
-      name: 'Gemma 4 31B (Free)',
-      provider: 'OpenRouter',
-      providerCategory: 'OpenRouter',
-      icon: '💎',
-      score: 88.5,
-      cost: 'Free',
-      hasKey: Boolean(openRouterKey || true), // Free model accessible
-      keyName: 'OpenRouter Key'
-    });
-    availableModels.push({
-      id: 'openrouter/openrouter/free',
-      name: 'OpenRouter Free Auto',
-      provider: 'OpenRouter',
-      providerCategory: 'OpenRouter',
-      icon: '🚀',
-      score: 86.0,
-      cost: 'Free',
-      hasKey: Boolean(openRouterKey || true),
-      keyName: 'OpenRouter Key'
-    });
-
-    // 4. Try querying local Ollama instance if available
-    try {
-      const ollamaRes = await fetch(`${ollamaHost}/api/tags`, { signal: AbortSignal.timeout(1500) });
-      if (ollamaRes.ok) {
-        const data = await ollamaRes.json();
-        if (data.models && Array.isArray(data.models)) {
-          data.models.forEach(m => {
-            availableModels.push({
-              id: `ollama/${m.name}`,
-              name: `Ollama - ${m.name}`,
-              provider: 'Local Ollama',
-              providerCategory: 'Ollama Local',
-              icon: '🦙',
-              score: 85.0,
-              cost: 'Local / Free',
-              hasKey: true,
-              keyName: 'Local Ollama'
-            });
-          });
+    if (supabase) {
+      try {
+        const { data } = await supabase.from('configs').select('*').eq('id', 'active_config').maybeSingle();
+        if (data) {
+          dbKeys = data.env || {};
+          configuredModels = data.config?.models || [];
         }
-      }
-    } catch (_) {
-      // Local Ollama not active
+      } catch (e) {}
+    }
+    if (!dbKeys.geminiApiKey && fs.existsSync(configFilePath)) {
+      try {
+        const fileData = fs.readFileSync(configFilePath, 'utf8');
+        const json = JSON.parse(fileData);
+        dbKeys = json.env || {};
+        if (json.config && Array.isArray(json.config.models)) {
+          configuredModels = json.config.models;
+        }
+      } catch (e) {}
     }
 
-    return NextResponse.json({ success: true, models: availableModels });
+    const geminiKey = apiKeys?.geminiApiKey || dbKeys.geminiApiKey || process.env.GEMINI_API_KEY || "";
+    const groqKey = apiKeys?.groqApiKey || dbKeys.groqApiKey || process.env.GROQ_API_KEY || "";
+    const openRouterKey = apiKeys?.openRouterApiKey || dbKeys.openRouterApiKey || process.env.OPENROUTER_API_KEY || "";
+    const ollamaHost = apiKeys?.ollamaHost || dbKeys.ollamaHost || process.env.OLLAMA_HOST || "http://localhost:11434";
+    const ollamaApiKey = apiKeys?.ollamaApiKey || dbKeys.ollamaApiKey || process.env.OLLAMA_API_KEY || "";
+
+    const defaultModels = [
+      "gemini-3.5-flash",
+      "groq/llama-3.3-70b-versatile",
+      "groq/llama-3.1-8b-instant"
+    ];
+
+    let dynamicOpenRouterModels = [];
+    try {
+      const orRes = await fetch('https://openrouter.ai/api/v1/models', { cache: 'no-store' });
+      if (orRes.ok) {
+        const orData = await orRes.json();
+        const freeModels = orData.data.filter(m => 
+          m.pricing && 
+          (m.pricing.prompt === "0" || parseFloat(m.pricing.prompt) === 0) && 
+          (m.pricing.completion === "0" || parseFloat(m.pricing.completion) === 0)
+        );
+        // Add the top 10 free models dynamically
+        dynamicOpenRouterModels = freeModels.slice(0, 10).map(m => `openrouter/${m.id}`);
+      }
+    } catch (e) {
+      console.error('Failed to fetch dynamic openrouter models', e);
+      // Fallback
+      dynamicOpenRouterModels = [
+        "openrouter/google/gemma-2-9b-it:free",
+        "openrouter/meta-llama/llama-3.1-8b-instruct:free",
+        "openrouter/microsoft/phi-3-mini-128k-instruct:free"
+      ];
+    }
+
+    const allConfiguredModels = Array.from(new Set([...defaultModels, ...dynamicOpenRouterModels, ...configuredModels]));
+
+    const availableModels = allConfiguredModels.map(modelStr => {
+      if (modelStr.startsWith('gemini-')) {
+        return {
+          id: modelStr,
+          name: modelStr,
+          provider: 'Google Gemini',
+          providerCategory: 'Google Gemini',
+          icon: '✨',
+          score: 90.0,
+          cost: 'Standard',
+          hasKey: Boolean(geminiKey),
+          keyName: 'Google Gemini Key'
+        };
+      } else if (modelStr.startsWith('groq/')) {
+        return {
+          id: modelStr,
+          name: modelStr.replace('groq/', ''),
+          provider: 'Groq',
+          providerCategory: 'Groq API',
+          icon: '♾️',
+          score: 88.0,
+          cost: 'Standard',
+          hasKey: Boolean(groqKey),
+          keyName: 'Groq API Key'
+        };
+      } else if (modelStr.startsWith('openrouter/')) {
+        return {
+          id: modelStr,
+          name: modelStr.replace('openrouter/', ''),
+          provider: 'OpenRouter',
+          providerCategory: 'OpenRouter API',
+          icon: '💎',
+          score: 85.0,
+          cost: 'Standard',
+          hasKey: Boolean(openRouterKey),
+          keyName: 'OpenRouter API Key'
+        };
+      } else {
+        return {
+          id: modelStr,
+          name: modelStr.replace(/^ollama\//, ''),
+          provider: 'Ollama',
+          providerCategory: 'Ollama / Custom Cloud',
+          icon: '🦙',
+          score: 80.0,
+          cost: 'Free/Local',
+          hasKey: Boolean(ollamaApiKey),
+          keyName: 'Ollama API Key'
+        };
+      }
+    });
+
+    return NextResponse.json({
+      success: true,
+      models: availableModels
+    });
   } catch (err) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
