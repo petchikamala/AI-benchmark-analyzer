@@ -1,38 +1,38 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { 
-  LayoutDashboard, 
-  PlayCircle, 
-  Activity, 
-  Trophy, 
-  History as HistoryIcon, 
-  BarChart3, 
-  Database, 
-  Code, 
-  Key, 
-  Settings, 
-  Search, 
-  Bell, 
-  User, 
-  Cpu, 
-  Clock, 
-  Zap, 
-  CheckCircle2, 
-  XCircle, 
-  AlertCircle, 
-  Filter, 
-  Download, 
-  RefreshCw, 
-  Sliders, 
-  Sparkles, 
-  ChevronRight, 
-  ChevronLeft, 
-  Moon, 
-  Sun, 
-  Menu, 
-  Check, 
-  ChevronDown, 
+import {
+  LayoutDashboard,
+  PlayCircle,
+  Activity,
+  Trophy,
+  History as HistoryIcon,
+  BarChart3,
+  Database,
+  Code,
+  Key,
+  Settings,
+  Search,
+  Bell,
+  User,
+  Cpu,
+  Clock,
+  Zap,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Filter,
+  Download,
+  RefreshCw,
+  Sliders,
+  Sparkles,
+  ChevronRight,
+  ChevronLeft,
+  Moon,
+  Sun,
+  Menu,
+  Check,
+  ChevronDown,
   Info,
   Layers,
   Sparkline,
@@ -237,7 +237,7 @@ export default function BenchmarkDashboard() {
           setGroqKeyInput(data.env?.groqApiKey || '');
           setOpenRouterKeyInput(data.env?.openRouterApiKey || '');
         }
-      } catch (e) {}
+      } catch (e) { }
     })();
     loadHistory();
   }, []);
@@ -263,9 +263,13 @@ export default function BenchmarkDashboard() {
   const handleNavClick = (navName) => {
     setActiveNav(navName);
     setIsMobileMenuOpen(false);
+    if (navName === 'Playground') {
+      window.location.href = '/playground';
+      return;
+    }
     if (navName === 'Overview') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    } else if (navName === 'Run Benchmark' || navName === 'Playground') {
+    } else if (navName === 'Run Benchmark') {
       document.getElementById('config-section')?.scrollIntoView({ behavior: 'smooth' });
     } else if (navName === 'Live Runs') {
       document.getElementById('live-status-section')?.scrollIntoView({ behavior: 'smooth' });
@@ -339,7 +343,7 @@ export default function BenchmarkDashboard() {
     let promptText = '';
     let taskName = '';
     let taskId = '';
-    
+
     if (promptCategory === 'Custom Prompt') {
       if (!customPrompt.trim()) {
         showToast('Please enter a custom prompt.', 'error');
@@ -391,7 +395,7 @@ export default function BenchmarkDashboard() {
 
         completedRuns++;
         setStatusText(`Running ${model} | ${taskName} (${i + 1}/${iter})`);
-        
+
         setLiveQueue(prev => prev.map(item => (item.model === model && item.iteration === (i + 1)) ? { ...item, status: 'running' } : item));
 
         const runResult = await runSingle({
@@ -440,7 +444,7 @@ export default function BenchmarkDashboard() {
       const res = await fetch('/api/history');
       const { results = [] } = await res.json();
       if (results.length) setHistory(results);
-    } catch (e) {}
+    } catch (e) { }
   }
 
   function handleGenerateRecommendation() {
@@ -524,7 +528,7 @@ export default function BenchmarkDashboard() {
 
   return (
     <div className="flex flex-col md:flex-row min-h-screen bg-[#f3f4f8] text-slate-900 relative">
-      
+
       {/* ─── Mobile Header Topbar (< md) ────────────────────────── */}
       <header className="md:hidden sticky top-0 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between z-40 shadow-xs">
         <div className="flex items-center gap-2.5">
@@ -538,8 +542,8 @@ export default function BenchmarkDashboard() {
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
             Live
           </div>
-          <button 
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-label="Toggle navigation menu"
             className="p-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
           >
@@ -551,9 +555,9 @@ export default function BenchmarkDashboard() {
       {/* ─── Mobile Off-Canvas Navigation Drawer (< md) ───────── */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden animate-fade-in">
-          <div 
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" 
-            onClick={() => setIsMobileMenuOpen(false)} 
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+            onClick={() => setIsMobileMenuOpen(false)}
           />
           <aside className="fixed inset-y-0 left-0 w-72 max-w-[80vw] bg-white shadow-2xl flex flex-col z-50 animate-drawer-in">
             <div className="flex items-center justify-between p-4 border-b border-slate-200">
@@ -576,11 +580,10 @@ export default function BenchmarkDashboard() {
                   <button
                     key={item.name}
                     onClick={() => handleNavClick(item.name)}
-                    className={`flex items-center w-full px-3 py-3 rounded-xl transition text-xs font-semibold ${
-                      isActive 
-                        ? 'bg-purple-50 text-purple-700 border-l-4 border-purple-600 shadow-sm font-bold' 
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                    }`}
+                    className={`flex items-center w-full px-3 py-3 rounded-xl transition text-xs font-semibold ${isActive
+                      ? 'bg-purple-50 text-purple-700 border-l-4 border-purple-600 shadow-sm font-bold'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      }`}
                   >
                     <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-purple-600' : 'text-slate-400'}`} />
                     <span className="ml-3 truncate">{item.name}</span>
@@ -624,11 +627,10 @@ export default function BenchmarkDashboard() {
               <button
                 key={item.name}
                 onClick={() => handleNavClick(item.name)}
-                className={`flex items-center w-full px-3 py-2.5 rounded-xl transition text-xs font-semibold ${
-                  isActive 
-                    ? 'bg-purple-50 text-purple-700 border-l-4 border-purple-600 shadow-sm font-bold' 
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
+                className={`flex items-center w-full px-3 py-2.5 rounded-xl transition text-xs font-semibold ${isActive
+                  ? 'bg-purple-50 text-purple-700 border-l-4 border-purple-600 shadow-sm font-bold'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
               >
                 <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-purple-600' : 'text-slate-400'}`} />
                 {!isSidebarCollapsed && <span className="ml-3 truncate">{item.name}</span>}
@@ -648,7 +650,7 @@ export default function BenchmarkDashboard() {
 
       {/* ─── Main Workspace ───────────────────────── */}
       <div className="flex-1 flex flex-col min-h-screen overflow-x-hidden w-full">
-        
+
         {/* Main Body */}
         <main className="flex-1 p-4 sm:p-6 space-y-5 sm:space-y-6 max-w-7xl mx-auto w-full">
 
@@ -733,13 +735,21 @@ export default function BenchmarkDashboard() {
 
           {/* 1. Hero Section */}
           <section className="relative overflow-hidden rounded-3xl hero-banner-gradient p-5 sm:p-6 text-white shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-5 sm:gap-6">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight flex items-center gap-2">
                 AI Benchmark Analyzer 👋
               </h2>
               <p className="text-white/80 text-xs max-w-md leading-relaxed">
                 Monitor, compare and analyze the performance of top AI models in real-time.
               </p>
+              <div className="pt-1">
+                <a
+                  href="/playground"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-purple-700 font-extrabold text-xs shadow-lg hover:bg-purple-50 transition transform hover:-translate-y-0.5"
+                >
+                  <span>⚡</span> Launch AI Playground →
+                </a>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 bg-white/15 backdrop-blur-md p-3 sm:p-3.5 rounded-2xl border border-white/25 w-full md:w-auto">
@@ -760,10 +770,6 @@ export default function BenchmarkDashboard() {
                 <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">1.42s</span>
               </div>
             </div>
-
-            <button onClick={() => document.getElementById('config-section')?.scrollIntoView({ behavior: 'smooth' })} className="w-full sm:w-auto justify-center px-4 py-2.5 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-xl border border-white/40 transition shadow-sm flex items-center gap-1.5">
-              <Plus className="w-4 h-4" /> New Benchmark
-            </button>
           </section>
 
           {/* 2. Four Dashboard Summary Cards */}
@@ -792,7 +798,7 @@ export default function BenchmarkDashboard() {
 
           {/* 3. Benchmark Configuration & AI Recommendation */}
           <section id="config-section" className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6">
-            
+
             {/* Left Panel: Select Models */}
             <div className="glass-card rounded-2xl p-4 sm:p-5 flex flex-col h-auto min-h-[380px] md:h-[480px]">
               <div className="flex items-center justify-between mb-3">
@@ -806,12 +812,12 @@ export default function BenchmarkDashboard() {
               </div>
 
               <div className="flex flex-col sm:flex-row gap-2 mb-3">
-                <input 
-                  type="text" 
-                  placeholder="Search models..." 
+                <input
+                  type="text"
+                  placeholder="Search models..."
                   value={searchModelQuery}
                   onChange={e => setSearchModelQuery(e.target.value)}
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800" 
+                  className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
                 />
                 <select value={providerFilter} onChange={e => setProviderFilter(e.target.value)} className="bg-slate-50 border border-slate-200 text-xs rounded-lg px-2 py-1.5 text-slate-700">
                   <option value="All">All Providers</option>
@@ -997,7 +1003,7 @@ export default function BenchmarkDashboard() {
 
           {/* 4. Live Benchmark Status & Leaderboard & Analytics */}
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6">
-            
+
             {/* Live Benchmark Status */}
             <div id="live-status-section" className="glass-card rounded-2xl p-5 space-y-3">
               <div className="flex items-center justify-between">
@@ -1151,7 +1157,7 @@ export default function BenchmarkDashboard() {
 
           {/* 5. Side-by-Side Comparison & Historical Analysis */}
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
+
             {/* Side-by-Side Comparison */}
             <div id="compare-section" className="glass-card rounded-2xl p-5 space-y-3">
               <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
@@ -1267,7 +1273,7 @@ export default function BenchmarkDashboard() {
         </main>
 
         <footer className="bg-white border-t border-slate-200 px-4 sm:px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-1 text-[10px] text-slate-500 font-semibold z-10 mt-auto text-center sm:text-left">
-          <span>© 2026 AI Benchmark Analyzer Platform · Unified LLM Evaluation</span>
+          <span>© {new Date().getFullYear()} AI Benchmark Analyzer Platform · Unified LLM Evaluation</span>
           <span>Light Theme Active</span>
         </footer>
       </div>
@@ -1366,7 +1372,7 @@ async function runSingle({ model, task, taskId, prompt, apiKeys, sessionId, iter
         } else if (msg.type === 'result') {
           lastResult = msg.data;
         }
-      } catch (_) {}
+      } catch (_) { }
     }
   }
 

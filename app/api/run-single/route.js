@@ -1,37 +1,29 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
-import { Ollama } from 'ollama';
-import fs from 'fs';
 import path from 'path';
 
-// Helper for non-blocking timeout sleep
+// Helper for non-blocking sleep
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-const resultsFilePath = path.join(process.cwd(), 'results.json');
-
-// POST single benchmark run handler
+// POST single benchmark run handler (Strict Real API execution only)
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { model, task, prompt, apiKeys, sessionId, iteration, totalIterations, currentCount } = body;
+    const { model, task, prompt, apiKeys, iteration, totalIterations } = body;
 
     if (!model || !prompt) {
       return NextResponse.json({ success: false, error: 'Missing model or prompt parameter' }, { status: 400 });
     }
 
-    const taskId = body.taskId || "custom-prompt";
-    const taskName = task || "Evaluation Task";
     const activeIteration = iteration || 1;
     const activeTotalIterations = totalIterations || 1;
 
-    // Resolve API Keys with env fallbacks
-    const ollamaApiKey = apiKeys?.ollamaApiKey || process.env.OLLAMA_API_KEY || "";
-    const ollamaHost = apiKeys?.ollamaHost || process.env.OLLAMA_HOST || "https://ollama.com";
+    // Resolve API Keys from payload or env variables
     const geminiApiKey = apiKeys?.geminiApiKey || process.env.GEMINI_API_KEY || "";
     const groqApiKey = apiKeys?.groqApiKey || process.env.GROQ_API_KEY || "";
     const openRouterApiKey = apiKeys?.openRouterApiKey || process.env.OPENROUTER_API_KEY || "";
+    const ollamaHost = apiKeys?.ollamaHost || process.env.OLLAMA_HOST || "http://localhost:11434";
 
-    // Set up SSE headers
+    // Set up SSE headers for progressive line streaming
     const encoder = new TextEncoder();
     const customReadableStream = new ReadableStream({
       async start(controller) {
@@ -44,48 +36,21 @@ export async function POST(request) {
         };
 
         const prefix = `[${model}]`;
-        sendEvent('log', null, `${prefix} Iteration ${activeIteration}/${activeTotalIterations}... starting\n`);
+        sendEvent('log', null, `${prefix} Connecting to model endpoint...\n`);
 
         let startTime = Date.now();
         let firstTokenTime = null;
         let totalTokens = 0;
-        let evalDurationNs = 0;
         let outputText = "";
         let success = false;
         let errorMessage = null;
 
-        const runSimulationFallback = async (reasonNotice) => {
-          if (reasonNotice) {
-            sendEvent('log', null, `${prefix} ${reasonNotice} Running benchmark simulation...\n`);
-          }
-          await sleep(150 + Math.random() * 200);
-          firstTokenTime = Date.now();
-
-          const sampleResponses = {
-            "Coding": "```javascript\nfunction reverseList(head) {\n  let prev = null;\n  let current = head;\n  while (current !== null) {\n    let next = current.next;\n    current.next = prev;\n    prev = current;\n    current = next;\n  }\n  return prev;\n}\n```",
-            "Reasoning": "There are 24 chickens and 11 rabbits. \nProof: Let C = chickens, R = rabbits. \nC + R = 35 => C = 35 - R.\n2C + 4R = 94 => 2(35 - R) + 4R = 94 => 70 + 2R = 94 => 2R = 24 => R = 12, C = 23.",
-            "Mathematics": "To find 15% of 200:\n1. 10% of 200 is 20.\n2. 5% of 200 is 10.\n3. 15% = 10% + 5% = 20 + 10 = 30.",
-            "Creative": "A playful kitten on a key,\nTypes code with curious, silent glee.\nWith soft white paws upon the board,\nA digital world is now explored!"
-          };
-
-          const categoryKey = taskName.split(' ')[0];
-          const textToStream = sampleResponses[categoryKey] || `Evaluation response for model ${model} processing prompt: "${prompt.slice(0, 40)}..."\n\nResult: Model completed execution successfully with optimal accuracy and high throughput.`;
-          const chunks = textToStream.match(/.{1,8}/g) || [textToStream];
-
-          for (const chunk of chunks) {
-            outputText += chunk;
-            sendEvent('log', null, chunk);
-            await sleep(30 + Math.random() * 30);
-          }
-
-          totalTokens = Math.max(30, Math.round(outputText.length / 4));
-          success = true;
-        };
-
         try {
+          // ─── 1. Google Gemini API Provider ─────────────────────────────────────
           if (model.startsWith("gemini-")) {
             if (!geminiApiKey) {
-              await runSimulationFallback("Gemini API key not configured.");
+              errorMessage = "Google Gemini API Key is required. Please add your key in the API Keys modal.";
+              sendEvent('log', null, `\n⚠️ [CONFIG ERROR] ${errorMessage}\n`);
             } else {
               const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${geminiApiKey}`;
               let response = await fetch(url, {
@@ -95,7 +60,9 @@ export async function POST(request) {
               });
 
               if (!response.ok) {
-                await runSimulationFallback(`Gemini API returned ${response.status}.`);
+                const errText = await response.text().catch(() => '');
+                errorMessage = `Gemini API returned status ${response.status}: ${errText.slice(0, 100)}`;
+                sendEvent('log', null, `\n❌ [API ERROR] ${errorMessage}\n`);
               } else {
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -131,9 +98,11 @@ export async function POST(request) {
               }
             }
 
+          // ─── 2. Groq API Provider ──────────────────────────────────────────────
           } else if (model.startsWith("groq/")) {
             if (!groqApiKey) {
-              await runSimulationFallback("Groq API key not configured.");
+              errorMessage = "Groq API Key is required. Please add your key in the API Keys modal.";
+              sendEvent('log', null, `\n⚠️ [CONFIG ERROR] ${errorMessage}\n`);
             } else {
               const actualModel = model.replace("groq/", "");
               const url = "https://api.groq.com/openai/v1/chat/completions";
@@ -151,7 +120,9 @@ export async function POST(request) {
               });
 
               if (!response.ok) {
-                await runSimulationFallback(`Groq API returned ${response.status}.`);
+                const errText = await response.text().catch(() => '');
+                errorMessage = `Groq API returned status ${response.status}: ${errText.slice(0, 100)}`;
+                sendEvent('log', null, `\n❌ [API ERROR] ${errorMessage}\n`);
               } else {
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -183,159 +154,145 @@ export async function POST(request) {
                     }
                   }
                 }
-                totalTokens = Math.max(25, Math.round(outputText.length / 4));
                 success = true;
               }
             }
 
+          // ─── 3. OpenRouter API Provider ─────────────────────────────────────────
           } else if (model.startsWith("openrouter/")) {
-            if (!openRouterApiKey) {
-              await runSimulationFallback("OpenRouter API key not configured.");
+            const actualModel = model.replace("openrouter/", "");
+            const headers = { 'Content-Type': 'application/json' };
+            if (openRouterApiKey) {
+              headers['Authorization'] = `Bearer ${openRouterApiKey}`;
+            }
+
+            const url = "https://openrouter.ai/api/v1/chat/completions";
+            let response = await fetch(url, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                model: actualModel,
+                messages: [{ role: 'user', content: prompt }],
+                stream: true
+              })
+            });
+
+            if (!response.ok) {
+              const errText = await response.text().catch(() => '');
+              errorMessage = `OpenRouter API returned status ${response.status}: ${errText.slice(0, 100)}`;
+              sendEvent('log', null, `\n❌ [API ERROR] ${errorMessage}\n`);
             } else {
-              const actualModel = model.replace("openrouter/", "");
-              const url = "https://openrouter.ai/api/v1/chat/completions";
-              let response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${openRouterApiKey}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  model: actualModel,
-                  messages: [{ role: 'user', content: prompt }],
-                  stream: true
-                })
-              });
+              const reader = response.body.getReader();
+              const decoder = new TextDecoder();
+              let buffer = "";
 
-              if (!response.ok) {
-                await runSimulationFallback(`OpenRouter API returned ${response.status}.`);
-              } else {
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = "";
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-                while (true) {
-                  const { done, value } = await reader.read();
-                  if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop();
 
-                  buffer += decoder.decode(value, { stream: true });
-                  const lines = buffer.split("\n");
-                  buffer = lines.pop();
-
-                  for (const line of lines) {
-                    if (line.startsWith("data: ")) {
-                      const dataStr = line.slice(6).trim();
-                      if (dataStr === "[DONE]") break;
-                      if (dataStr) {
-                        try {
-                          const parsed = JSON.parse(dataStr);
-                          const content = parsed.choices?.[0]?.delta?.content || "";
-                          if (firstTokenTime === null && content) firstTokenTime = Date.now();
-                          if (content) {
-                            outputText += content;
-                            sendEvent('log', null, content);
-                          }
-                        } catch (e) {}
-                      }
+                for (const line of lines) {
+                  if (line.startsWith("data: ")) {
+                    const dataStr = line.slice(6).trim();
+                    if (dataStr === "[DONE]") break;
+                    if (dataStr) {
+                      try {
+                        const parsed = JSON.parse(dataStr);
+                        const content = parsed.choices?.[0]?.delta?.content || "";
+                        if (firstTokenTime === null && content) firstTokenTime = Date.now();
+                        if (content) {
+                          outputText += content;
+                          sendEvent('log', null, content);
+                        }
+                      } catch (e) {}
                     }
                   }
                 }
-                totalTokens = Math.max(25, Math.round(outputText.length / 4));
-                success = true;
               }
+              success = true;
             }
 
+          // ─── 4. Local Ollama Provider ──────────────────────────────────────────
+          } else if (model.startsWith("ollama/")) {
+            const actualModel = model.replace("ollama/", "");
+            const url = `${ollamaHost}/api/generate`;
+            let response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: actualModel,
+                prompt,
+                stream: true
+              })
+            });
+
+            if (!response.ok) {
+              errorMessage = `Local Ollama instance returned status ${response.status}. Ensure Ollama service is running.`;
+              sendEvent('log', null, `\n❌ [OLLAMA ERROR] ${errorMessage}\n`);
+            } else {
+              const reader = response.body.getReader();
+              const decoder = new TextDecoder();
+              let buffer = "";
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                  if (line.trim()) {
+                    try {
+                      const parsed = JSON.parse(line.trim());
+                      const text = parsed.response || "";
+                      if (firstTokenTime === null && text) firstTokenTime = Date.now();
+                      if (text) {
+                        outputText += text;
+                        sendEvent('log', null, text);
+                      }
+                    } catch (e) {}
+                  }
+                }
+              }
+              success = true;
+            }
           } else {
-            // Default Simulation for custom or Ollama models
-            await runSimulationFallback();
+            errorMessage = `Unsupported model provider: ${model}`;
+            sendEvent('log', null, `\n⚠️ [CONFIG ERROR] ${errorMessage}\n`);
           }
 
         } catch (execErr) {
           console.error("Execution error:", execErr);
-          await runSimulationFallback(`Execution fallback: ${execErr.message}`);
+          errorMessage = execErr.message || "Failed to reach AI model API.";
+          sendEvent('log', null, `\n❌ [NETWORK ERROR] ${errorMessage}\n`);
         }
 
         const endTime = Date.now();
         const wallClockDurationMs = Math.max(1, endTime - startTime);
-        const ttftMs = firstTokenTime ? Math.max(1, firstTokenTime - startTime) : Math.min(300, wallClockDurationMs);
-        if (!totalTokens) totalTokens = Math.max(15, Math.round(outputText.length / 4));
-        const genTimeSec = Math.max(0.05, (wallClockDurationMs - ttftMs) / 1000);
-        const tokensPerSec = Number((totalTokens / genTimeSec).toFixed(2));
+        if (!totalTokens) totalTokens = Math.max(1, Math.round(outputText.length / 4));
 
-        const resultData = {
-          avgTtft: ttftMs,
-          avgDuration: wallClockDurationMs,
-          avgTokens: totalTokens,
-          avgTokensPerSec: tokensPerSec,
-          successCount: success ? 1 : 0,
-          totalCount: 1
-        };
-
-        const outputData = {
-          taskId,
-          taskName,
-          modelId: model,
-          text: success ? outputText : '',
-          success,
-          ttftMs: success ? ttftMs : 0,
-          durationMs: success ? wallClockDurationMs : 0,
-          tokens: success ? totalTokens : 0,
-          speed: success ? tokensPerSec : 0
-        };
-
-        // Stream output results to update live UI logs and states
-        if (success) {
-          sendEvent('log', null, `\n${prefix} Success! (TTFT: ${ttftMs}ms, Total: ${wallClockDurationMs}ms, Tokens: ${totalTokens}, Speed: ${tokensPerSec.toFixed(1)} tok/s)\n`);
-        }
-
-        sendEvent('output', outputData);
-        sendEvent('result', resultData);
-
-        // Save progress to database / local file
-        const dbRecord = {
-          session_id: sessionId || '00000000-0000-0000-0000-000000000000',
+        sendEvent('output', {
           model,
-          task: taskName,
-          ttft_ms: success ? Math.round(ttftMs) : 0,
-          latency_ms: success ? Math.round(wallClockDurationMs) : 0,
-          tokens: success ? totalTokens : 0,
-          speed_tps: success ? Number(tokensPerSec.toFixed(3)) : 0,
+          prompt,
+          text: outputText,
+          tokens: totalTokens,
+          durationMs: wallClockDurationMs,
           success,
-          response_text: success ? outputText : null,
-          error_message: errorMessage
-        };
+          error: errorMessage
+        });
 
-        // Save to local JSON backup
-        try {
-          let resultsList = [];
-          if (fs.existsSync(resultsFilePath)) {
-            const fileContent = fs.readFileSync(resultsFilePath, 'utf8');
-            try {
-              resultsList = JSON.parse(fileContent);
-              if (!Array.isArray(resultsList)) resultsList = [];
-            } catch (e) {
-              resultsList = [];
-            }
-          }
-          resultsList.push({
-            id: Math.random().toString(36).substring(2, 11),
-            created_at: new Date().toISOString(),
-            ...dbRecord
-          });
-          fs.writeFileSync(resultsFilePath, JSON.stringify(resultsList, null, 2), 'utf8');
-        } catch (fsErr) {
-          console.error('Local results file write failed:', fsErr);
-        }
-
-        sendEvent('progress', 100);
-        sendEvent('done');
         controller.close();
       }
     });
 
-    return new Response(customReadableStream, {
+    return new NextResponse(customReadableStream, {
       headers: {
-        'Content-Type': 'text/event-stream',
+        'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive'
       }
