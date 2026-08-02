@@ -752,207 +752,7 @@ export default function BenchmarkDashboard() {
             })}
           </section>
 
-          {/* 3. Benchmark Configuration & AI Recommendation */}
-          <section id="config-section" className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6">
 
-            {/* Left Panel: Select Models */}
-            <div className="glass-card rounded-2xl p-4 sm:p-5 flex flex-col h-auto min-h-[380px] md:h-[480px]">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
-                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">1</span> Select Models <span className="text-xs text-slate-400 font-normal">({selectedModels.length} selected)</span>
-                </h3>
-                <div className="flex gap-1.5">
-                  <button onClick={handleSelectAllModels} className="text-[11px] px-2 py-1 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition-colors font-semibold">Select All</button>
-                  <button onClick={handleClearAllModels} className="text-[11px] px-2 py-1 bg-slate-100 text-slate-600 rounded-md hover:bg-slate-200 transition-colors font-semibold">Clear All</button>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-2 mb-3">
-                <input
-                  type="text"
-                  placeholder="Search models..."
-                  value={searchModelQuery}
-                  onChange={e => setSearchModelQuery(e.target.value)}
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
-                />
-                <select value={providerFilter} onChange={e => setProviderFilter(e.target.value)} className="bg-slate-50 border border-slate-200 text-xs rounded-lg px-2 py-1.5 text-slate-700">
-                  <option value="All">All Providers</option>
-                  <option value="Google Gemini">Google Gemini</option>
-                  <option value="Groq API">Groq API</option>
-                  <option value="OpenRouter (Free)">OpenRouter</option>
-                  <option value="Ollama / Custom">Ollama</option>
-                </select>
-              </div>
-
-              <div className="flex-1 max-h-56 md:max-h-none overflow-y-auto space-y-1.5 pr-1 scroll-smooth">
-                {Object.entries(modelsGrouped)
-                  .filter(([group]) => providerFilter === 'All' || group === providerFilter)
-                  .map(([group, models]) => (
-                    <div key={group} className="space-y-1">
-                      <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider sticky top-0 bg-white py-1">{group}</div>
-                      {models
-                        .filter(m => m.toLowerCase().includes(searchModelQuery.toLowerCase()))
-                        .map(model => {
-                          const isSelected = selectedModels.includes(model);
-                          return (
-                            <div key={model} onClick={() => handleModelToggle(model, !isSelected)} className={`flex items-center justify-between p-2 rounded-xl cursor-pointer border text-xs ${isSelected ? 'bg-purple-50 border-purple-200 text-purple-900 font-semibold' : 'bg-slate-50/60 border-slate-200/60 text-slate-700 hover:bg-slate-100'}`}>
-                              <div className="flex items-center gap-2 overflow-hidden">
-                                <input type="checkbox" checked={isSelected} readOnly className="accent-purple-600 rounded flex-shrink-0" />
-                                <span className="truncate max-w-[140px] sm:max-w-none">{model.replace(/^(groq|openrouter)\//, '')}</span>
-                              </div>
-                              <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-slate-100 text-slate-600 border border-slate-200 flex-shrink-0 ml-1">
-                                {model.startsWith('gemini-') ? 'Google' : model.startsWith('groq/') ? 'Groq' : model.startsWith('openrouter/') ? 'OpenRouter' : 'Ollama'}
-                              </span>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  ))}
-              </div>
-
-              <div className="pt-3 border-t border-slate-200 flex justify-between text-xs text-slate-500 font-medium mt-2 md:mt-0">
-                <span>{selectedModels.length} selected</span>
-              </div>
-            </div>
-
-            {/* Middle Panel: Benchmark Options */}
-            <div className="glass-card rounded-2xl p-4 sm:p-5 flex flex-col h-auto min-h-[380px] md:h-[480px]">
-              <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900 mb-3">
-                <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">2</span> Benchmark Options
-              </h3>
-
-              <div className="flex-1 space-y-3 overflow-y-auto pr-1">
-                <div>
-                  <label className="text-xs text-slate-600 font-semibold block mb-1">Iterations per Task</label>
-                  <select value={iterations} onChange={e => setIterations(Number(e.target.value))} className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl px-3 py-1.5 text-slate-800">
-                    {[1, 2, 3, 4, 5].map(val => <option key={val} value={val}>{val}</option>)}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs text-slate-600 font-semibold block mb-1">Prompt Category</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {['Coding', 'Reasoning', 'Mathematics', 'Creative Writing', 'Custom Prompt'].map(cat => (
-                      <button key={cat} onClick={() => setPromptCategory(cat)} className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${promptCategory === cat ? 'bg-purple-600 text-white border-purple-600 shadow-sm' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}>
-                        {cat}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-slate-600 font-semibold block mb-1">Difficulty</label>
-                  <div className="flex gap-2">
-                    {['Easy', 'Medium', 'Hard'].map(diff => (
-                      <button key={diff} onClick={() => setPromptDifficulty(diff)} className={`flex-1 text-[10px] font-bold py-1 rounded-lg border ${promptDifficulty === diff ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}>
-                        {diff}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-slate-600 font-semibold block mb-1">Priority / Goal</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {['Fastest', 'Best Coding', 'Best Reasoning', 'Lowest Cost', 'Balanced'].map(pri => (
-                      <button key={pri} onClick={() => setPriorityGoal(pri)} className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${priorityGoal === pri ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}>
-                        {pri}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-slate-600 font-semibold block mb-1">Custom Prompt (Optional)</label>
-                  <textarea rows={2} value={customPrompt} onChange={e => setCustomPrompt(e.target.value)} placeholder="Enter your custom prompt here..." className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs text-slate-800" />
-                </div>
-              </div>
-
-              <div className="pt-3 border-t border-slate-200 flex gap-2">
-                <button onClick={handleStartBenchmark} disabled={isRunning} className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-xs shadow-md disabled:opacity-50">
-                  ▶ Start Benchmark
-                </button>
-                <button onClick={handleStopBenchmark} disabled={!isRunning} className="px-4 py-2.5 bg-red-50 text-red-600 font-bold border border-red-200 rounded-xl text-xs disabled:opacity-50">
-                  ■ Stop
-                </button>
-              </div>
-            </div>
-
-            {/* Right Panel: AI Recommendation */}
-            <div className="glass-card rounded-2xl p-4 sm:p-5 flex flex-col h-auto min-h-[380px] md:h-[480px]">
-              <h3 className="font-bold text-sm flex items-center gap-1.5 text-slate-900 mb-3">
-                AI Recommendation ✨
-              </h3>
-
-              <div className="space-y-3 flex-1 flex flex-col justify-between">
-                <div>
-                  <label className="text-xs text-slate-600 font-semibold block mb-1">Choose Goal</label>
-                  <select value={recommendGoal} onChange={e => setRecommendGoal(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl px-3 py-1.5 text-slate-800">
-                    <option value="Balanced Performance">Balanced Performance</option>
-                    <option value="Fastest Response">Fastest Response</option>
-                    <option value="Best Coding">Best Coding</option>
-                  </select>
-                </div>
-
-                <button onClick={handleGenerateRecommendation} className="w-full py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs shadow-sm flex items-center justify-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" /> Recommend Best Model
-                </button>
-
-                <div className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between space-y-2">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Recommended Model</span>
-                      <span className="text-sm font-extrabold text-purple-700 mt-0.5 block">🏆 {recommendation.model}</span>
-                    </div>
-                    <div className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded-xl text-xs font-extrabold border border-emerald-300">
-                      {recommendation.score} /100
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[10px] font-semibold text-slate-600">
-                      <span>Confidence Score</span>
-                      <span>{recommendation.confidence}%</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-purple-600 to-indigo-600" style={{ width: `${recommendation.confidence}%` }}></div>
-                    </div>
-                  </div>
-
-                  <div className="text-[10px] text-slate-600 space-y-1 leading-relaxed">
-                    <span className="font-bold text-slate-700 block">Why this model?</span>
-                    <p>{recommendation.reason}</p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-1 text-[9px] pt-1">
-                    <div className="flex flex-wrap gap-1">
-                      {recommendation.strengths.map((s, idx) => (
-                        <span key={idx} className="bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-full border border-emerald-200">{s}</span>
-                      ))}
-                    </div>
-                    {recommendation.weaknesses.map((w, idx) => (
-                      <span key={idx} className="bg-red-50 text-red-700 font-bold px-2 py-0.5 rounded-full border border-red-200">{w}</span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-          </section>
-
-          {/* Terminal Console Logs */}
-          <section className="glass-card rounded-2xl p-4 space-y-2">
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Terminal Logs</span>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-inner">
-              <div className="bg-slate-800/80 px-3 py-1.5 border-b border-slate-700 flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                <span>Console Output</span>
-                <span>{statusText}</span>
-              </div>
-              <pre ref={terminalRef} className="p-3 h-32 overflow-y-auto font-mono text-xs text-slate-200 leading-relaxed whitespace-pre-wrap select-text">
-                {terminalLines.join('')}
-              </pre>
-            </div>
-          </section>
 
           {/* 4. Live Benchmark Status & Leaderboard & Analytics */}
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6">
@@ -961,7 +761,7 @@ export default function BenchmarkDashboard() {
             <div id="live-status-section" className="glass-card rounded-2xl p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
-                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">3</span> Live Benchmark Status
+                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">1</span> Live Benchmark Status
                 </h3>
               </div>
 
@@ -999,7 +799,7 @@ export default function BenchmarkDashboard() {
             {/* Live Leaderboard */}
             <div id="leaderboard-section" className="glass-card rounded-2xl p-4 sm:p-5 space-y-3">
               <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
-                <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">4</span> Live Leaderboard <span className="text-xs text-slate-400 font-normal">(Overall Score)</span>
+                <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">2</span> Live Leaderboard <span className="text-xs text-slate-400 font-normal">(Overall Score)</span>
               </h3>
 
               <div className="overflow-x-auto -mx-1 px-1">
@@ -1036,7 +836,7 @@ export default function BenchmarkDashboard() {
             <div id="analytics-section" className="glass-card rounded-2xl p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
-                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">5</span> Key Analytics
+                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">3</span> Key Analytics
                 </h3>
               </div>
 
@@ -1114,7 +914,7 @@ export default function BenchmarkDashboard() {
             {/* Side-by-Side Comparison */}
             <div id="compare-section" className="glass-card rounded-2xl p-5 space-y-3">
               <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
-                <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">6</span> Side-by-Side Comparison
+                <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">4</span> Side-by-Side Comparison
               </h3>
 
               <div className="flex items-center gap-2 text-xs">
@@ -1158,7 +958,7 @@ export default function BenchmarkDashboard() {
             <div id="history-section" className="glass-card rounded-2xl p-4 sm:p-5 space-y-3 lg:col-span-2">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                 <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
-                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">7</span> Historical Analysis
+                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">5</span> Historical Analysis
                 </h3>
                 <div className="flex gap-2 w-full sm:w-auto">
                   <button onClick={downloadCSVReport} className="flex-1 sm:flex-initial bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-300">Export CSV</button>
