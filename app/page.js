@@ -986,9 +986,9 @@ export default function BenchmarkDashboard() {
                 <button onClick={() => showToast('Filters applied')} className="bg-slate-200 text-slate-700 text-[10px] font-bold px-3 py-1 rounded-lg">Filter</button>
               </div>
 
-              <div className="overflow-x-auto -mx-1 px-1">
+              <div className="overflow-x-auto overflow-y-auto max-h-[400px] -mx-1 px-1">
                 <table className="w-full min-w-[620px] text-left border-collapse text-xs font-semibold">
-                  <thead>
+                  <thead className="sticky top-0 bg-white/95 backdrop-blur-sm z-10 shadow-sm">
                     <tr className="border-b border-slate-200 text-[10px] text-slate-400 uppercase">
                       <th className="py-1.5 px-2">Date &amp; Time</th>
                       <th className="py-1.5 px-2">Model</th>
