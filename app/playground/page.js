@@ -918,10 +918,10 @@ export default function PlaygroundPage() {
   };
 
   return (
-    <div className="flex min-h-screen font-sans transition-colors duration-200 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-50 via-white to-purple-50 text-slate-900 print:block print:bg-white print:min-h-0">
+    <div className="flex flex-col lg:flex-row min-h-screen font-sans transition-colors duration-200 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-50 via-white to-purple-50 text-slate-900 print:block print:bg-white print:min-h-0">
 
       {/* ─── 1. LEFT SIDEBAR NAVIGATION ───────────────────────────────────── */}
-      <aside className="w-64 border-r border-slate-200/50 bg-white/40 backdrop-blur-xl flex flex-col justify-between flex-shrink-0 print:hidden">
+      <aside className="w-full lg:w-64 border-b lg:border-b-0 lg:border-r border-slate-200/50 bg-white/40 backdrop-blur-xl flex flex-col justify-between flex-shrink-0 print:hidden">
         
         <div className="p-5 space-y-6">
           {/* Logo Branding */}
@@ -1319,7 +1319,7 @@ export default function PlaygroundPage() {
       </div>
 
       {/* ─── 5. RIGHT SIDEBAR BENCHMARK SUMMARY (DYNAMIC DATA) ───────────── */}
-      <aside className="w-80 border-l border-slate-200/50 bg-white/40 backdrop-blur-xl p-5 flex flex-col justify-between flex-shrink-0 text-slate-900 print:hidden">
+      <aside className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-slate-200/50 bg-white/40 backdrop-blur-xl p-5 flex flex-col justify-between flex-shrink-0 text-slate-900 print:hidden">
         <div className="space-y-6">
 
           {!hasApiResponse ? (
