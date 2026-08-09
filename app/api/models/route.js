@@ -38,6 +38,7 @@ export async function POST(request) {
     const geminiKey = apiKeys?.geminiApiKey || dbKeys.geminiApiKey || process.env.GEMINI_API_KEY || "";
     const groqKey = apiKeys?.groqApiKey || dbKeys.groqApiKey || process.env.GROQ_API_KEY || "";
     const openRouterKey = apiKeys?.openRouterApiKey || dbKeys.openRouterApiKey || process.env.OPENROUTER_API_KEY || "";
+    const huggingfaceKey = apiKeys?.huggingfaceApiKey || dbKeys.huggingfaceApiKey || process.env.HUGGINGFACE_API_KEY || "";
     const ollamaHost = apiKeys?.ollamaHost || dbKeys.ollamaHost || process.env.OLLAMA_HOST || "http://localhost:11434";
     const ollamaApiKey = apiKeys?.ollamaApiKey || dbKeys.ollamaApiKey || process.env.OLLAMA_API_KEY || "";
 
@@ -45,6 +46,12 @@ export async function POST(request) {
       "gemini-3.5-flash",
       "groq/llama-3.3-70b-versatile",
       "groq/llama-3.1-8b-instant"
+    ];
+
+    const huggingfaceModels = [
+      "huggingface/meta-llama/Llama-3.1-8B-Instruct",
+      "huggingface/Qwen/Qwen2.5-7B-Instruct",
+      "huggingface/deepseek-ai/DeepSeek-V3"
     ];
 
     let dynamicOpenRouterModels = [];
@@ -55,7 +62,8 @@ export async function POST(request) {
         const freeModels = orData.data.filter(m => 
           m.pricing && 
           (m.pricing.prompt === "0" || parseFloat(m.pricing.prompt) === 0) && 
-          (m.pricing.completion === "0" || parseFloat(m.pricing.completion) === 0)
+          (m.pricing.completion === "0" || parseFloat(m.pricing.completion) === 0) &&
+          !m.id.toLowerCase().includes('lyria')
         );
         // Add the top 10 free models dynamically
         dynamicOpenRouterModels = freeModels.slice(0, 10).map(m => `openrouter/${m.id}`);
@@ -64,13 +72,28 @@ export async function POST(request) {
       console.error('Failed to fetch dynamic openrouter models', e);
       // Fallback
       dynamicOpenRouterModels = [
-        "openrouter/google/gemma-2-9b-it:free",
-        "openrouter/meta-llama/llama-3.1-8b-instruct:free",
-        "openrouter/microsoft/phi-3-mini-128k-instruct:free"
       ];
     }
 
-    const allConfiguredModels = Array.from(new Set([...defaultModels, ...dynamicOpenRouterModels, ...configuredModels]));
+    let dynamicOllamaModels = [];
+    try {
+      const ollama = new Ollama({ 
+        host: ollamaHost,
+        headers: ollamaApiKey ? { Authorization: `Bearer ${ollamaApiKey}` } : undefined
+      });
+      const ollamaList = await ollama.list();
+      if (ollamaList && ollamaList.models) {
+        // Filter out known premium cloud models that always throw subscription errors
+        const paidPrefixes = ['deepseek-v4', 'kimi', 'minimax', 'glm', 'qwen', 'mistral-large'];
+        dynamicOllamaModels = ollamaList.models
+          .filter(m => !paidPrefixes.some(prefix => m.name.toLowerCase().includes(prefix)))
+          .map(m => `ollama/${m.name}`);
+      }
+    } catch (e) {
+      console.error('Failed to fetch dynamic ollama models from host:', ollamaHost, e);
+    }
+
+    const allConfiguredModels = Array.from(new Set([...defaultModels, ...huggingfaceModels, ...dynamicOpenRouterModels, ...dynamicOllamaModels, ...configuredModels]));
 
     const availableModels = allConfiguredModels.map(modelStr => {
       if (modelStr.startsWith('gemini-')) {
@@ -98,6 +121,7 @@ export async function POST(request) {
           keyName: 'Groq API Key'
         };
       } else if (modelStr.startsWith('openrouter/')) {
+        const isFree = modelStr.includes(':free') || dynamicOpenRouterModels.includes(modelStr);
         return {
           id: modelStr,
           name: modelStr.replace('openrouter/', ''),
@@ -105,9 +129,21 @@ export async function POST(request) {
           providerCategory: 'OpenRouter API',
           icon: '💎',
           score: 85.0,
-          cost: 'Standard',
+          cost: isFree ? 0 : 'Standard',
           hasKey: Boolean(openRouterKey),
           keyName: 'OpenRouter API Key'
+        };
+      } else if (modelStr.startsWith('huggingface/')) {
+        return {
+          id: modelStr,
+          name: modelStr.replace('huggingface/', ''),
+          provider: 'Hugging Face',
+          providerCategory: 'Hugging Face API',
+          icon: '🤗',
+          score: 85.0,
+          cost: 0,
+          hasKey: Boolean(huggingfaceKey),
+          keyName: 'Hugging Face API Key'
         };
       } else {
         return {
@@ -117,7 +153,7 @@ export async function POST(request) {
           providerCategory: 'Ollama / Custom Cloud',
           icon: '🦙',
           score: 80.0,
-          cost: 'Free/Local',
+          cost: 0,
           hasKey: Boolean(ollamaApiKey),
           keyName: 'Ollama API Key'
         };

@@ -60,7 +60,10 @@ import {
   BarChart,
   Bar,
   AreaChart,
-  Area
+  Area,
+  ScatterChart,
+  Scatter,
+  ZAxis
 } from 'recharts';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -484,11 +487,11 @@ export default function BenchmarkDashboard() {
   };
 
   const leaderboardData = [
-    { rank: 1, model: 'Gemini 2.5 Pro', score: 95.4, latency: '1.21s', accuracy: '96.8%', badge: '🥇' },
-    { rank: 2, model: 'GPT-4.1', score: 93.1, latency: '1.54s', accuracy: '95.1%', badge: '🥈' },
-    { rank: 3, model: 'Claude 3.5 Sonnet', score: 90.3, latency: '1.63s', accuracy: '93.2%', badge: '🥉' },
-    { rank: 4, model: 'DeepSeek V3', score: 88.7, latency: '1.35s', accuracy: '92.1%', badge: '4' },
-    { rank: 5, model: 'Llama 3.3 70B', score: 85.6, latency: '1.82s', accuracy: '89.3%', badge: '5' },
+    { rank: 1, model: 'Llama 3.2 1B (Free)', score: 96.8, latency: '0.85s', ttft: '120ms', tps: 140.2, accuracy: '91.2%', badge: '🥇' },
+    { rank: 2, model: 'Gemini 2.5 Pro', score: 95.4, latency: '1.21s', ttft: '340ms', tps: 85.4, accuracy: '96.8%', badge: '🥈' },
+    { rank: 3, model: 'GPT-4.1', score: 93.1, latency: '1.54s', ttft: '450ms', tps: 72.1, accuracy: '95.1%', badge: '🥉' },
+    { rank: 4, model: 'DeepSeek R1 (Free)', score: 88.7, latency: '1.35s', ttft: '250ms', tps: 91.5, accuracy: '92.1%', badge: '4' },
+    { rank: 5, model: 'Llama 3.3 70B', score: 85.6, latency: '1.82s', ttft: '310ms', tps: 61.5, accuracy: '89.3%', badge: '5' },
   ];
 
   const radarChartData = [
@@ -501,11 +504,11 @@ export default function BenchmarkDashboard() {
   ];
 
   const barChartData = [
-    { name: 'Gemini 2.5 Pro', TPS: 85.4, Latency: 1.21 },
-    { name: 'GPT-4.1', TPS: 72.1, Latency: 1.54 },
-    { name: 'Claude 3.5', TPS: 68.2, Latency: 1.63 },
-    { name: 'DeepSeek V3', TPS: 91.5, Latency: 1.35 },
-    { name: 'Llama 3.3 70B', TPS: 61.5, Latency: 1.82 },
+    { name: 'Gemini 2.5 Pro', TPS: 85.4, Latency: 1.21, Cost: 0.007 },
+    { name: 'GPT-4.1', TPS: 72.1, Latency: 1.54, Cost: 0.015 },
+    { name: 'Llama 3.2 1B (Free)', TPS: 140.2, Latency: 0.85, Cost: 0 },
+    { name: 'DeepSeek R1 (Free)', TPS: 91.5, Latency: 1.35, Cost: 0 },
+    { name: 'Llama 3.3 70B', TPS: 61.5, Latency: 1.82, Cost: 0.002 },
   ];
 
   // Filtered History
@@ -809,7 +812,9 @@ export default function BenchmarkDashboard() {
                       <th className="py-1.5 px-2">Rank</th>
                       <th className="py-1.5 px-2">Model</th>
                       <th className="py-1.5 px-2">Score</th>
+                      <th className="py-1.5 px-2">TTFT</th>
                       <th className="py-1.5 px-2">Latency</th>
+                      <th className="py-1.5 px-2">TPS</th>
                       <th className="py-1.5 px-2">Accuracy</th>
                     </tr>
                   </thead>
@@ -819,7 +824,9 @@ export default function BenchmarkDashboard() {
                         <td className="py-2 px-2">{row.badge}</td>
                         <td className="py-2 px-2 font-mono text-[11px]">{row.model}</td>
                         <td className="py-2 px-2 font-bold text-purple-700">{row.score}</td>
+                        <td className="py-2 px-2 font-mono text-slate-500">{row.ttft}</td>
                         <td className="py-2 px-2 font-mono text-slate-600">{row.latency}</td>
+                        <td className="py-2 px-2 font-mono text-blue-600">{row.tps}</td>
                         <td className="py-2 px-2 text-emerald-600 font-mono">{row.accuracy}</td>
                       </tr>
                     ))}
@@ -844,8 +851,9 @@ export default function BenchmarkDashboard() {
                 {[
                   { id: 'radar', name: 'Radar Chart' },
                   { id: 'latency', name: 'Latency' },
-                  { id: 'tokens', name: 'Token Usage' },
-                  { id: 'accuracy', name: 'Accuracy' },
+                  { id: 'tokens', name: 'Tokens/Sec' },
+                  { id: 'cost', name: 'Cost' },
+                  { id: 'costVsSpeed', name: 'Cost vs Speed' },
                 ].map(tab => (
                   <button key={tab.id} onClick={() => setActiveChartTab(tab.id)} className={`flex-1 py-1 rounded transition ${activeChartTab === tab.id ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}>
                     {tab.name}
@@ -890,15 +898,27 @@ export default function BenchmarkDashboard() {
                         </BarChart>
                       </ResponsiveContainer>
                     )}
-                    {activeChartTab === 'accuracy' && (
+                    {activeChartTab === 'cost' && (
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={barChartData}>
+                        <BarChart data={barChartData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                           <XAxis dataKey="name" stroke="#64748b" fontSize={8} fontWeight="bold" />
                           <YAxis stroke="#64748b" fontSize={9} />
-                          <Tooltip />
-                          <Area type="monotone" dataKey="TPS" stroke="#10b981" fill="rgba(16, 185, 129, 0.2)" />
-                        </AreaChart>
+                          <Tooltip formatter={(value) => `$${value}`} />
+                          <Bar dataKey="Cost" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                    {activeChartTab === 'costVsSpeed' && (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                          <XAxis dataKey="Cost" type="number" name="Cost ($)" stroke="#64748b" fontSize={9} tickFormatter={(val) => `$${val}`} />
+                          <YAxis dataKey="TPS" type="number" name="Speed (TPS)" stroke="#64748b" fontSize={9} />
+                          <ZAxis dataKey="name" name="Model" />
+                          <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={(val, name, props) => name === 'Cost ($)' ? `$${val}` : val} />
+                          <Scatter name="Models" data={barChartData} fill="#8b5cf6" />
+                        </ScatterChart>
                       </ResponsiveContainer>
                     )}
                   </>
