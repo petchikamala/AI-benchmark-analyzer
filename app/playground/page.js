@@ -1304,18 +1304,9 @@ export default function PlaygroundPage() {
                         className="hover:text-purple-600 flex items-center gap-1.5 transition cursor-pointer"
                       >
                         {copiedModelId === model.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>Copy Code</span>
+                        <span>Copy Response</span>
                       </button>
                     </div>
-
-                    {output.text && (
-                      <button
-                        onClick={() => handleRunCode(output.text, 'javascript', `${model.name} Output`)}
-                        className="text-purple-600 hover:text-purple-800 font-extrabold flex items-center gap-1.5 transition cursor-pointer"
-                      >
-                        <Maximize2 className="w-3.5 h-3.5" /> Run Code Sandbox
-                      </button>
-                    )}
                   </div>
 
                 </div>
@@ -1528,7 +1519,7 @@ export default function PlaygroundPage() {
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={performanceChartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
+                        <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-30} textAnchor="end" height={60} />
                         <YAxis tick={{ fontSize: 10 }} unit=" t/s" />
                         <RechartsTooltip />
                         <Bar dataKey="speed" name="Tokens/sec" radius={[4, 4, 0, 0]}>

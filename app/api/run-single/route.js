@@ -41,6 +41,7 @@ export async function POST(request) {
     const geminiApiKey = apiKeys?.geminiApiKey || dbKeys.geminiApiKey || process.env.GEMINI_API_KEY || "";
     const groqApiKey = apiKeys?.groqApiKey || dbKeys.groqApiKey || process.env.GROQ_API_KEY || "";
     const openRouterApiKey = apiKeys?.openRouterApiKey || dbKeys.openRouterApiKey || process.env.OPENROUTER_API_KEY || "";
+    const huggingfaceApiKey = apiKeys?.huggingfaceApiKey || dbKeys.huggingfaceApiKey || process.env.HUGGINGFACE_API_KEY || "";
     const ollamaHost = apiKeys?.ollamaHost || dbKeys.ollamaHost || process.env.OLLAMA_HOST || "http://localhost:11434";
     const ollamaApiKey = apiKeys?.ollamaApiKey || dbKeys.ollamaApiKey || process.env.OLLAMA_API_KEY || "";
 
@@ -331,7 +332,92 @@ export async function POST(request) {
               }
             }
 
-          // ─── 4. Local/Remote Ollama Provider ──────────────────────────────────────────
+          // ─── 4. Hugging Face API Provider ─────────────────────────────────────────
+          } else if (model.startsWith("huggingface/")) {
+            if (!huggingfaceApiKey) {
+              errorMessage = "Hugging Face API Key is required. Please add your key in the environment variables.";
+              sendEvent('log', null, `\n⚠️ [CONFIG ERROR] ${errorMessage}\n`);
+            } else {
+              const actualModel = model.replace("huggingface/", "");
+              const url = `https://router.huggingface.co/v1/chat/completions`;
+              let response;
+              let attempts = 0;
+              const maxAttempts = 5;
+
+              while (!success && attempts < maxAttempts) {
+                attempts++;
+                startTime = Date.now();
+                response = await fetch(url, {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${huggingfaceApiKey}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    model: actualModel,
+                    messages: [{ role: 'user', content: prompt }],
+                    stream: true,
+                    max_tokens: 1024
+                  })
+                });
+
+                if (response.status === 429) {
+                  let delayMs = 10000;
+                  const retryAfter = response.headers.get("x-ratelimit-reset");
+                  if (retryAfter) {
+                    delayMs = Math.max(1000, parseInt(retryAfter, 10) * 1000 - Date.now() + 1000);
+                  }
+                  sendEvent('log', null, `\n⏳ [RATE LIMIT] Rate limited (429). Retrying in ${(delayMs / 1000).toFixed(1)}s... (Attempt ${attempts}/${maxAttempts})\n`);
+                  await sleep(delayMs);
+                } else if (!response.ok) {
+                  const errText = await response.text().catch(() => '');
+                  throw new Error(`Hugging Face API error: ${response.status} ${errText.slice(0, 100)}`);
+                } else {
+                  success = true;
+                }
+              }
+
+              if (!success) {
+                throw new Error("Hugging Face API error: Max rate limit retries exceeded.");
+              }
+
+              const reader = response.body.getReader();
+              const decoder = new TextDecoder();
+              let buffer = "";
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                  const cleanLine = line.trim();
+                  if (cleanLine.startsWith("data: ")) {
+                    const dataStr = cleanLine.slice(6).trim();
+                    if (dataStr === "[DONE]") continue;
+                    if (dataStr) {
+                      try {
+                        const parsed = JSON.parse(dataStr);
+                        const content = parsed.choices?.[0]?.delta?.content || "";
+                        if (firstTokenTime === null && content) firstTokenTime = Date.now();
+                        if (content) {
+                          outputText += content;
+                          sendEvent('log', null, content);
+                        }
+                        if (parsed.usage) {
+                          totalTokens = parsed.usage.completion_tokens || 0;
+                        }
+                      } catch (e) {}
+                    }
+                  }
+                }
+              }
+            }
+
+          // ─── 5. Local/Remote Ollama Provider ──────────────────────────────────────────
           } else {
             const actualModel = model.replace(/^ollama\//, "");
             const ollama = new Ollama({
