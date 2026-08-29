@@ -326,6 +326,30 @@ export default function BenchmarkDashboard() {
     }
   }, [terminalLines]);
 
+  useEffect(() => {
+    const savedQueue = localStorage.getItem('live_benchmark_queue');
+    if (savedQueue) {
+      try {
+        setLiveQueue(JSON.parse(savedQueue));
+      } catch (_) {}
+    }
+
+    const channel = new BroadcastChannel('live-benchmark-channel');
+    channel.onmessage = (event) => {
+      if (event.data) {
+        if (event.data.type === 'update') {
+          setLiveQueue(event.data.queue);
+        } else if (event.data.type === 'clear') {
+          setLiveQueue([]);
+          loadHistory();
+        }
+      }
+    };
+    return () => {
+      channel.close();
+    };
+  }, []);
+
   const appendLog = useCallback((text) => {
     setTerminalLines(prev => {
       if (prev.length > 0 && text.length < 100 && !text.includes('\n')) {
@@ -986,55 +1010,11 @@ export default function BenchmarkDashboard() {
 
 
 
-          {/* 4. Full Width Key Analytics & Status */}
-          <div id="live-status-section" className="panel p-5 space-y-3">
-            <div className="flex items-center gap-3">
-              <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>1</span>
-              <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>Live Benchmark Status</h2>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {[
-                { label: 'Queue', value: liveQueue.filter(q => q.status === 'queued').length, color: 'var(--muted-foreground)' },
-                { label: 'Running', value: liveQueue.filter(q => q.status === 'running').length, color: 'var(--accent)' },
-                { label: 'Completed', value: liveQueue.filter(q => q.status === 'completed').length, color: 'var(--success)' },
-                { label: 'Failed', value: liveQueue.filter(q => q.status === 'failed').length, color: 'var(--destructive)' },
-              ].map(s => (
-                <div key={s.label} className="rounded-xl px-4 py-3" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 40%)' }}>
-                  <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
-                    {s.label}
-                  </div>
-                  <p className="num mt-2 text-xl font-semibold">{s.value}</p>
-                </div>
-              ))}
-            </div>
-
-            {liveQueue.length === 0 ? (
-              <p className="rounded-xl py-5 text-center text-xs" style={{ border: '1px dashed var(--border)', color: 'var(--muted-foreground)' }}>
-                No active benchmark runs in queue.
-              </p>
-            ) : (
-              <div className="space-y-2 text-xs font-semibold max-h-32 overflow-y-auto pr-1">
-                {liveQueue.map((item, i) => (
-                  <div key={i} className="space-y-1">
-                    <div className="flex justify-between text-[11px]">
-                      <span style={{ color: 'var(--foreground)' }}>{item.model.split('/').pop()}</span>
-                      <span className="capitalize" style={{ color: 'var(--muted-foreground)' }}>{item.status} {item.progress || 0}%</span>
-                    </div>
-                    <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--secondary)' }}>
-                      <div className="h-full rounded-full transition-all duration-300" style={{ width: `${item.progress || 0}%`, backgroundImage: 'var(--gradient-primary)' }}></div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
 
           <div id="analytics-section" className="panel p-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>2</span>
+                <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>1</span>
                 <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
                   Key Analytics <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Normalized across 5 dimensions</span>
                 </h2>
@@ -1149,7 +1129,7 @@ export default function BenchmarkDashboard() {
             <div className="lg:col-span-7 flex flex-col">
               <div id="leaderboard-section" className="panel flex h-full flex-col p-5">
                 <div className="flex items-center gap-3">
-                  <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>3</span>
+                  <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>2</span>
                   <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
                     Live Leaderboard <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Overall score</span>
                   </h2>
@@ -1220,7 +1200,7 @@ export default function BenchmarkDashboard() {
             <div className="lg:col-span-5 flex flex-col">
               <div id="compare-section" className="panel p-5 h-full flex flex-col">
                 <div className="flex items-center gap-3">
-                  <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>4</span>
+                  <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>3</span>
                   <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>Side-by-Side Comparison</h2>
                 </div>
 
@@ -1326,7 +1306,7 @@ export default function BenchmarkDashboard() {
           <div id="history-section" className="panel p-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>5</span>
+                <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>4</span>
                 <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
                   Historical Analysis <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Last 7 days</span>
                 </h2>

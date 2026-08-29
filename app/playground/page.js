@@ -135,6 +135,8 @@ export default function PlaygroundPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [abortControllers, setAbortControllers] = useState({});
   const [copiedModelId, setCopiedModelId] = useState(null);
+  const [liveQueue, setLiveQueue] = useState([]);
+  const [isMobileModelsOpen, setIsMobileModelsOpen] = useState(false);
 
   // Live Sandbox Modal
   const [sandboxCode, setSandboxCode] = useState(null);
@@ -198,6 +200,20 @@ export default function PlaygroundPage() {
     setIsGenerating(true);
 
     const activeModels = availableModels.filter(m => selectedModelIds.includes(m.id));
+
+    // Initialize cross-tab live benchmark status queue
+    const initialQueue = activeModels.map(m => ({
+      id: m.id,
+      model: m.id,
+      status: 'running',
+      progress: 10,
+      taskName: 'Playground Query'
+    }));
+    setLiveQueue(initialQueue);
+    localStorage.setItem('live_benchmark_queue', JSON.stringify(initialQueue));
+    const chStart = new BroadcastChannel('live-benchmark-channel');
+    chStart.postMessage({ type: 'update', queue: initialQueue });
+    chStart.close();
 
     const controllers = {};
     activeModels.forEach(m => {
@@ -309,6 +325,20 @@ export default function PlaygroundPage() {
                   fullText += chunk;
                   const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2) + 's';
                   const tokenEst = Math.max(5, Math.round(fullText.length / 4));
+                  const estProgress = Math.min(90, 15 + Math.round(fullText.length / 12));
+
+                  try {
+                    const q = JSON.parse(localStorage.getItem('live_benchmark_queue') || '[]');
+                    const idx = q.findIndex(item => item.id === modelId);
+                    if (idx !== -1) {
+                      q[idx].progress = estProgress;
+                      localStorage.setItem('live_benchmark_queue', JSON.stringify(q));
+                      const ch = new BroadcastChannel('live-benchmark-channel');
+                      ch.postMessage({ type: 'update', queue: q });
+                      ch.close();
+                    }
+                  } catch (_) {}
+                  setLiveQueue(prev => prev.map(item => item.id === modelId ? { ...item, progress: estProgress } : item));
 
                   setModelOutputs(prev => ({
                     ...prev,
@@ -348,6 +378,21 @@ export default function PlaygroundPage() {
         runResults.push(resultObj);
         saveModelResultToBackend(resultObj);
 
+        // Update live queue to complete
+        try {
+          const q = JSON.parse(localStorage.getItem('live_benchmark_queue') || '[]');
+          const idx = q.findIndex(item => item.id === modelId);
+          if (idx !== -1) {
+            q[idx].status = resultObj.success ? 'completed' : 'failed';
+            q[idx].progress = 100;
+            localStorage.setItem('live_benchmark_queue', JSON.stringify(q));
+            const ch = new BroadcastChannel('live-benchmark-channel');
+            ch.postMessage({ type: 'update', queue: q });
+            ch.close();
+          }
+        } catch (_) {}
+        setLiveQueue(prev => prev.map(item => item.id === modelId ? { ...item, status: resultObj.success ? 'completed' : 'failed', progress: 100 } : item));
+
       } catch (err) {
         let isAbort = err.name === 'AbortError';
         let errorMsg = isAbort ? 'Cancelled by user.' : (err.message || 'API request failed.');
@@ -384,12 +429,36 @@ export default function PlaygroundPage() {
             metrics: { ...(prev[modelId]?.metrics || {}), latency: isAbort ? 'Stopped' : 'Failed' }
           }
         }));
+
+        // Update live queue to failed
+        try {
+          const q = JSON.parse(localStorage.getItem('live_benchmark_queue') || '[]');
+          const idx = q.findIndex(item => item.id === modelId);
+          if (idx !== -1) {
+            q[idx].status = isAbort ? 'stopped' : 'failed';
+            q[idx].progress = 100;
+            localStorage.setItem('live_benchmark_queue', JSON.stringify(q));
+            const ch = new BroadcastChannel('live-benchmark-channel');
+            ch.postMessage({ type: 'update', queue: q });
+            ch.close();
+          }
+        } catch (_) {}
+        setLiveQueue(prev => prev.map(item => item.id === modelId ? { ...item, status: isAbort ? 'stopped' : 'failed', progress: 100 } : item));
       }
     });
 
     await Promise.allSettled(streamPromises);
     setIsGenerating(false);
     setAbortControllers({});
+
+    // Wait 3 seconds, then clear the live status queue
+    setTimeout(() => {
+      localStorage.removeItem('live_benchmark_queue');
+      const ch = new BroadcastChannel('live-benchmark-channel');
+      ch.postMessage({ type: 'clear' });
+      ch.close();
+      setLiveQueue([]);
+    }, 3000);
 
     // Save run record to dynamic history
     if (runResults.length > 0) {
@@ -1036,6 +1105,27 @@ export default function PlaygroundPage() {
               />
             </div>
 
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={handleSelectAllPlaygroundModels}
+                className="flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold tracking-wider uppercase transition cursor-pointer"
+                style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)', color: 'var(--foreground)' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--elevated)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'oklch(0.26 0.028 275 / 30%)'}
+              >
+                Select All
+              </button>
+              <button
+                onClick={handleClearAllPlaygroundModels}
+                className="flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold tracking-wider uppercase transition cursor-pointer"
+                style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)', color: 'var(--foreground)' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--elevated)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'oklch(0.26 0.028 275 / 30%)'}
+              >
+                Clear All
+              </button>
+            </div>
+
             <div className="overflow-y-auto space-y-1.5 flex-1 pr-1 border border-transparent [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
               {isModelsLoading ? (
                 Array(6).fill(0).map((_, idx) => (
@@ -1122,13 +1212,21 @@ export default function PlaygroundPage() {
           </div>
 
           {/* Clean Action Buttons (No Profile Badge) */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <button
+              onClick={() => setIsMobileModelsOpen(true)}
+              className="md:hidden px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+              style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
+            >
+              <Cpu className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} /> Models
+            </button>
+
             <button
               onClick={() => setIsPromptLibraryOpen(true)}
               className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
               style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
             >
-              <Bookmark className="w-3.5 h-3.5" style={{ color: 'var(--primary-glow)' }} /> <span className="num">15</span> JS Presets
+              <Bookmark className="w-3.5 h-3.5" style={{ color: 'var(--primary-glow)' }} /> <span className="num">15</span> Presets
             </button>
           </div>
 
@@ -1157,16 +1255,16 @@ export default function PlaygroundPage() {
                   }
                 }}
                 placeholder="Type a JavaScript program request (e.g. Write a JavaScript function to reverse a string)..."
-                className="w-full bg-transparent border-none text-sm focus:outline-none resize-none min-h-[60px] font-sans"
+                className="w-full bg-transparent border-none text-sm focus:outline-none resize-none min-h-[120px] sm:min-h-[80px] font-sans"
                 style={{ color: 'var(--foreground)' }}
-                rows={2}
+                rows={4}
               />
 
-              <div className="flex items-center justify-between pt-2" style={{ borderTop: '1px solid var(--border)' }}>
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+                <div className="flex flex-row gap-2 w-full sm:w-auto">
                   <button
                     onClick={() => setIsSystemPromptOpen(!isSystemPromptOpen)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                    className="px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer flex-1 sm:flex-none"
                     style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
                   >
                     <Sliders className="w-3.5 h-3.5" style={{ color: 'var(--primary-glow)' }} /> System Persona
@@ -1174,17 +1272,17 @@ export default function PlaygroundPage() {
 
                   <button
                     onClick={() => setIsPromptLibraryOpen(true)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                    className="px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer flex-1 sm:flex-none"
                     style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
                   >
-                    <Bookmark className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} /> JavaScript Presets
+                    <Bookmark className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} /> JS Presets
                   </button>
                 </div>
 
                 <button
                   onClick={isGenerating ? handleStopAll : () => handleRunBenchmark()}
                   disabled={!isGenerating && !promptText.trim()}
-                  className="px-6 py-2.5 rounded-xl font-semibold text-xs flex items-center gap-2 transition cursor-pointer"
+                  className="px-6 py-2.5 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer w-full sm:w-auto"
                   style={
                     isGenerating
                       ? { background: 'var(--destructive)', color: 'var(--destructive-foreground)', boxShadow: '0 0 12px var(--destructive)' }
@@ -1199,7 +1297,7 @@ export default function PlaygroundPage() {
                     </>
                   ) : (
                     <>
-                      <Play className="w-4 h-4 fill-current" /> Run Benchmark <span className="text-[10px] opacity-75 font-mono">Ctrl + Enter</span>
+                      <Play className="w-4 h-4 fill-current" /> Run Benchmark <span className="text-[10px] opacity-75 font-mono hidden sm:inline">Ctrl + Enter</span>
                     </>
                   )}
                 </button>
@@ -1220,6 +1318,49 @@ export default function PlaygroundPage() {
               )}
             </div>
           </section>
+
+          {/* Live Benchmark Status Panel */}
+          <div id="live-status-section" className="panel p-5 space-y-3 mb-6">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>Live Benchmark Status</h2>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {[
+                { label: 'Running', value: liveQueue.filter(q => q.status === 'running').length, color: 'var(--accent)' },
+                { label: 'Completed', value: liveQueue.filter(q => q.status === 'completed').length, color: 'var(--success)' },
+                { label: 'Failed', value: liveQueue.filter(q => q.status === 'failed' || q.status === 'stopped').length, color: 'var(--destructive)' },
+              ].map(s => (
+                <div key={s.label} className="rounded-xl px-4 py-3" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 40%)' }}>
+                  <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--muted-foreground)' }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
+                    {s.label}
+                  </div>
+                  <p className="num mt-2 text-xl font-semibold">{s.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {liveQueue.length === 0 ? (
+              <p className="rounded-xl py-5 text-center text-xs" style={{ border: '1px dashed var(--border)', color: 'var(--muted-foreground)' }}>
+                No active benchmark runs in queue.
+              </p>
+            ) : (
+              <div className="space-y-2 text-xs font-semibold max-h-32 overflow-y-auto pr-1">
+                {liveQueue.map((item, i) => (
+                  <div key={i} className="space-y-1">
+                    <div className="flex justify-between text-[11px]">
+                      <span style={{ color: 'var(--foreground)' }}>{item.model.split('/').pop()}</span>
+                      <span className="capitalize" style={{ color: 'var(--muted-foreground)' }}>{item.status} {item.progress || 0}%</span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--secondary)' }}>
+                      <div className="h-full rounded-full transition-all duration-300" style={{ width: `${item.progress || 0}%`, backgroundImage: 'var(--gradient-primary)' }}></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* ─── 4. MODEL OUTPUT GRID (STRICT REAL API RESPONSES) ────────────── */}
           <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1445,6 +1586,96 @@ export default function PlaygroundPage() {
 
         </div>
       </aside>
+
+      {/* ─── MOBILE DRAWER: MODEL CONFIG (Only md-hidden) ────────────────── */}
+      {isMobileModelsOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-50 md:hidden flex justify-start animate-fade-in">
+          <div className="w-[280px] h-full flex flex-col p-5 animate-slide-in-left" style={{ background: 'var(--sidebar)', borderRight: '1px solid var(--sidebar-border)' }}>
+            <div className="flex items-center justify-between pb-4 mb-4" style={{ borderBottom: '1px solid var(--sidebar-border)' }}>
+              <span className="font-bold text-xs uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>Model Config</span>
+              <button onClick={() => setIsMobileModelsOpen(false)} style={{ color: 'var(--muted-foreground)' }}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Model Selection Checklist inside mobile drawer */}
+            <div className="flex-1 flex flex-col min-h-0 space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-muted-foreground shrink-0" style={{ fontSize: '10px' }}>
+                <span>Select Models</span>
+                <span className="num text-[10px] px-2 py-0.5 rounded-md" style={{ background: 'oklch(0.26 0.028 275 / 50%)', border: '1px solid var(--border)' }}>
+                  {selectedModelIds.length} Selected
+                </span>
+              </div>
+
+              <div className="relative shrink-0">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-2.5" style={{ color: 'var(--muted-foreground)' }} />
+                <input
+                  type="text"
+                  placeholder="Search models..."
+                  value={modelSearchQuery}
+                  onChange={e => setModelSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 rounded-xl text-xs focus:outline-none"
+                  style={{ border: '1px solid var(--border)', background: 'oklch(0.20 0.015 275)', color: 'var(--foreground)' }}
+                />
+              </div>
+
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={handleSelectAllPlaygroundModels}
+                  className="flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold tracking-wider uppercase transition cursor-pointer"
+                  style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)', color: 'var(--foreground)' }}
+                >
+                  Select All
+                </button>
+                <button
+                  onClick={handleClearAllPlaygroundModels}
+                  className="flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold tracking-wider uppercase transition cursor-pointer"
+                  style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)', color: 'var(--foreground)' }}
+                >
+                  Clear All
+                </button>
+              </div>
+
+              <div className="overflow-y-auto space-y-1.5 flex-1 pr-1 border border-transparent [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
+                {isModelsLoading ? (
+                  Array(6).fill(0).map((_, idx) => (
+                    <div key={idx} className="p-2 rounded-xl text-xs flex items-center justify-between animate-pulse">
+                      <div className="flex items-center gap-2 truncate flex-1">
+                        <div className="w-4 h-4 rounded-full bg-zinc-800 shrink-0 animate-pulse" />
+                        <div className="h-3 bg-zinc-800 rounded-md w-28 animate-pulse" />
+                      </div>
+                      <div className="w-3.5 h-3.5 rounded bg-zinc-800 shrink-0 animate-pulse" />
+                    </div>
+                  ))
+                ) : (
+                  availableModels.filter(m => m.hasKey && (m.name.toLowerCase().includes(modelSearchQuery.toLowerCase()) || m.provider.toLowerCase().includes(modelSearchQuery.toLowerCase()))).map(m => {
+                    const isSelected = selectedModelIds.includes(m.id);
+                    return (
+                      <div
+                        key={m.id}
+                        onClick={() => toggleModelSelection(m.id)}
+                        className="p-2 rounded-xl text-xs flex items-center justify-between cursor-pointer transition select-none"
+                        style={isSelected ? { background: 'oklch(0.75 0.17 155 / 8%)', border: '1px solid oklch(0.75 0.17 155 / 25%)', color: 'var(--success)' } : { background: 'transparent', border: '1px solid transparent', color: 'var(--muted-foreground)' }}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <span className="text-xs shrink-0">{m.icon}</span>
+                          <span className="truncate font-semibold text-[11px]" style={{ color: isSelected ? 'var(--success)' : 'var(--foreground)' }}>{m.name.split('/').pop()}</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          readOnly
+                          className="w-3.5 h-3.5 rounded-lg border-2 accent-emerald-500 shrink-0"
+                        />
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── MODAL: 15 SIMPLE JAVASCRIPT PRESETS LIBRARY ────────────────── */}
       {isPromptLibraryOpen && (
