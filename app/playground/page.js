@@ -40,7 +40,8 @@ import {
   AlertCircle,
   XCircle,
   KeyRound,
-  FileText
+  FileText,
+  ArrowLeft
 } from 'lucide-react';
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, ZAxis,
@@ -70,6 +71,7 @@ export default function PlaygroundPage() {
 
   // Dynamic Available Models State
   const [availableModels, setAvailableModels] = useState([]);
+  const [isModelsLoading, setIsModelsLoading] = useState(true);
 
   // Selected Models IDs
   const [selectedModelIds, setSelectedModelIds] = useState(['groq/llama-3.3-70b-versatile', 'groq/llama-3.1-8b-instant']);
@@ -94,6 +96,7 @@ export default function PlaygroundPage() {
 
   // Fetch Available Models Dynamically
   const fetchAvailableModels = async () => {
+    setIsModelsLoading(true);
     try {
       const res = await fetch('/api/models', {
         method: 'POST',
@@ -104,7 +107,10 @@ export default function PlaygroundPage() {
       if (data.success && data.models) {
         setAvailableModels(data.models);
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      setIsModelsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -134,6 +140,10 @@ export default function PlaygroundPage() {
   const [sandboxCode, setSandboxCode] = useState(null);
   const [sandboxActiveTab, setSandboxActiveTab] = useState('preview');
   const [sandboxEditableCode, setSandboxEditableCode] = useState('');
+
+  const isGeminiReady = useMemo(() => availableModels.some(m => m.provider.toLowerCase().includes('gemini') && m.hasKey), [availableModels]);
+  const isGroqReady = useMemo(() => availableModels.some(m => m.provider.toLowerCase().includes('groq') && m.hasKey), [availableModels]);
+  const isOpenRouterReady = useMemo(() => availableModels.some(m => m.provider.toLowerCase().includes('openrouter') && m.hasKey), [availableModels]);
 
   // Outside click for model dropdown
   useEffect(() => {
@@ -205,6 +215,32 @@ export default function PlaygroundPage() {
     });
 
     const runResults = [];
+
+    const saveModelResultToBackend = (res) => {
+      try {
+        const payload = [{
+          model: res.id,
+          task: 'Playground Query',
+          prompt: res.prompt,
+          ttft_ms: res.ttftMs || 0,
+          latency_ms: Math.round(res.latencyNum * 1000) || 0,
+          tokens: res.tokens || 0,
+          speed_tps: res.speed || 0,
+          cost: res.costNum || 0,
+          success: res.success,
+          response_text: res.responseText || '',
+          error_message: res.error || null,
+          session_id: 'playground-session'
+        }];
+        fetch('/api/history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ results: payload })
+        }).catch(err => console.error('Failed to save to backend:', err));
+      } catch (err) {
+        console.error('Error preparing backend payload:', err);
+      }
+    };
 
     const streamPromises = activeModels.map(async (modelObj) => {
       const modelId = modelObj.id;
@@ -291,7 +327,7 @@ export default function PlaygroundPage() {
         const totalLatencySec = ((Date.now() - startTime) / 1000).toFixed(2);
         const finalTokens = Math.max(5, Math.round(fullText.length / 4));
 
-        runResults.push({
+        const resultObj = {
           id: modelId,
           name: modelObj.name,
           provider: modelObj.provider,
@@ -308,13 +344,15 @@ export default function PlaygroundPage() {
           speed: apiSpeed,
           responseText: fullText,
           error: apiErrorMsg
-        });
+        };
+        runResults.push(resultObj);
+        saveModelResultToBackend(resultObj);
 
       } catch (err) {
         let isAbort = err.name === 'AbortError';
         let errorMsg = isAbort ? 'Cancelled by user.' : (err.message || 'API request failed.');
 
-        runResults.push({
+        const errorResultObj = {
           id: modelId,
           name: modelObj.name,
           provider: modelObj.provider,
@@ -330,7 +368,11 @@ export default function PlaygroundPage() {
           speed: 0,
           responseText: fullText || (isAbort ? '' : 'Error: ' + errorMsg),
           error: isAbort ? null : errorMsg
-        });
+        };
+        runResults.push(errorResultObj);
+        if (!isAbort) {
+          saveModelResultToBackend(errorResultObj);
+        }
 
         setModelOutputs(prev => ({
           ...prev,
@@ -360,30 +402,7 @@ export default function PlaygroundPage() {
       };
       setRunHistory(prev => [newHistoryRecord, ...prev]);
 
-      // Post results to backend Supabase DB
-      try {
-        const backendPayload = runResults.map(res => ({
-          model: res.id,
-          task: 'Playground Query',
-          prompt: res.prompt,
-          ttft_ms: res.ttftMs || 0,
-          latency_ms: Math.round(res.latencyNum * 1000) || 0,
-          tokens: res.tokens || 0,
-          speed_tps: res.speed || 0,
-          success: res.success,
-          response_text: res.responseText || '',
-          error_message: res.error || null,
-          session_id: 'playground-session'
-        }));
-        
-        fetch('/api/history', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ results: backendPayload })
-        }).catch(err => console.error('Failed to save to backend:', err));
-      } catch (err) {
-        console.error('Error preparing backend payload:', err);
-      }
+
     }
   };
 
@@ -504,40 +523,44 @@ export default function PlaygroundPage() {
   // Helper to render markdown text segment safely
   const renderFormattedText = (text) => {
     if (!text) return null;
+
+    // Inline formatter helper
+    const formatLineContent = (str) => {
+      return str.split(/(\*\*.*?\*\*|`.*?`)/g).map((part, pIdx) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return <strong key={pIdx} className="font-bold" style={{ color: 'var(--foreground)' }}>{part.slice(2, -2)}</strong>;
+        }
+        if (part.startsWith('`') && part.endsWith('`')) {
+          return <code key={pIdx} className="px-1 py-0.5 rounded font-mono text-[11px] border" style={{ background: 'oklch(0.26 0.028 275 / 50%)', borderColor: 'var(--border)', color: 'var(--foreground)' }}>{part.slice(1, -1)}</code>;
+        }
+        return part;
+      });
+    };
+
     const lines = text.split('\n');
     return lines.map((line, idx) => {
       let trimmed = line.trim();
       if (!trimmed) return <div key={idx} className="h-1.5" />;
 
       if (trimmed.startsWith('### ')) {
-        return <h4 key={idx} className="font-extrabold text-xs text-purple-700 mt-2 mb-1 uppercase tracking-wider">{trimmed.slice(4)}</h4>;
+        return <h4 key={idx} className="font-semibold text-xs mt-2 mb-1 uppercase tracking-wider num" style={{ color: 'var(--primary-glow)' }}>{formatLineContent(trimmed.slice(4))}</h4>;
       }
       if (trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
-        return <h3 key={idx} className="font-extrabold text-sm text-slate-900 mt-2 mb-1 border-b border-slate-200 pb-1">{trimmed.replace(/^#+\s*/, '')}</h3>;
+        return <h3 key={idx} className="font-semibold text-sm mt-2 mb-1 pb-1" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)', borderBottom: '1px solid var(--border)' }}>{formatLineContent(trimmed.replace(/^#+\s*/, ''))}</h3>;
       }
       if (trimmed.startsWith('**') && trimmed.endsWith('**')) {
-        return <h4 key={idx} className="font-bold text-xs text-slate-900 mt-2 mb-0.5">{trimmed.slice(2, -2)}</h4>;
+        return <h4 key={idx} className="font-semibold text-xs mt-2 mb-0.5 num" style={{ color: 'var(--accent)' }}>{formatLineContent(trimmed.slice(2, -2))}</h4>;
       }
       if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
         return (
-          <div key={idx} className="flex items-start gap-2 my-0.5 pl-2 text-xs text-slate-700">
-            <span className="text-purple-600 font-bold">•</span>
-            <span>{trimmed.slice(2)}</span>
+          <div key={idx} className="flex items-start gap-2 my-0.5 pl-2 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+            <span className="font-bold" style={{ color: 'var(--primary-glow)' }}>•</span>
+            <span>{formatLineContent(trimmed.slice(2))}</span>
           </div>
         );
       }
 
-      const formattedLine = line.split(/(\*\*.*?\*\*|`.*?`)/g).map((part, pIdx) => {
-        if (part.startsWith('**') && part.endsWith('**')) {
-          return <strong key={pIdx} className="font-bold text-slate-900">{part.slice(2, -2)}</strong>;
-        }
-        if (part.startsWith('`') && part.endsWith('`')) {
-          return <code key={pIdx} className="bg-purple-50 text-purple-700 px-1 py-0.5 rounded font-mono text-[11px] border border-purple-200">{part.slice(1, -1)}</code>;
-        }
-        return part;
-      });
-
-      return <p key={idx} className="my-1 text-xs text-slate-700 leading-relaxed">{formattedLine}</p>;
+      return <p key={idx} className="my-1 text-xs leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>{formatLineContent(line)}</p>;
     });
   };
 
@@ -958,77 +981,109 @@ export default function PlaygroundPage() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen font-sans transition-colors duration-200 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-50 via-white to-purple-50 text-slate-900 print:block print:bg-white print:min-h-0">
+    <div className="flex flex-col lg:flex-row min-h-screen font-sans transition-colors duration-200 print:block print:bg-white print:min-h-0" style={{ background: 'var(--background)', color: 'var(--foreground)' }}>
 
       {/* ─── 1. LEFT SIDEBAR NAVIGATION ───────────────────────────────────── */}
-      <aside className="w-full lg:w-64 border-b lg:border-b-0 lg:border-r border-slate-200/50 bg-white/40 backdrop-blur-xl flex flex-col justify-between flex-shrink-0 print:hidden">
+      <aside className="w-full lg:w-64 flex flex-col justify-between flex-shrink-0 print:hidden lg:h-screen lg:sticky lg:top-0 overflow-hidden" style={{ borderRight: '1px solid var(--sidebar-border)', background: 'var(--sidebar)' }}>
         
-        <div className="p-5 space-y-6">
+        <div className="p-5 flex-1 flex flex-col min-h-0 space-y-4">
           {/* Logo Branding */}
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-cyan-500 flex items-center justify-center text-white font-extrabold shadow-lg shadow-purple-900/20 group-hover:scale-105 transition-transform">
-              <Zap className="w-5 h-5 fill-current" />
+          <Link href="/" className="flex items-center gap-3 group shrink-0">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-extrabold transition-transform group-hover:scale-105" style={{ backgroundImage: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)' }}>
+              <Zap className="w-4 h-4" />
             </div>
             <div>
-              <h1 className="font-black text-base tracking-tight leading-tight text-slate-900">AI Benchmark</h1>
-              <span className="text-[10px] font-bold text-purple-600 tracking-wider uppercase block">Analyzer Studio</span>
+              <h1 className="font-bold text-base tracking-tight leading-tight" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>AI Benchmark</h1>
+              <span className="num text-[8px] uppercase tracking-[0.2em] block" style={{ color: 'var(--muted-foreground)' }}>Analyzer Studio</span>
             </div>
           </Link>
 
-          {/* New Benchmark Action Button */}
-          <button
-            onClick={() => {
-              setPromptText('');
-              handleRunBenchmark('Write a simple JavaScript program that prints "Hello, World!" to the console.');
-            }}
-            className="w-full py-2.5 px-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-600/25 transition cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New Benchmark</span>
-          </button>
-
-          {/* Main Navigation Links */}
-          <nav className="space-y-1 text-xs font-bold">
-            {[
-              { label: 'Run Benchmark', icon: Play, active: true },
-              { label: 'Compare Models', icon: Sliders, action: () => setIsModelDropdownOpen(true) },
-              { label: 'Prompt Library', icon: Bookmark, action: () => setIsPromptLibraryOpen(true) },
-            ].map((item, idx) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    setActiveNav(item.label);
-                    if (item.action) item.action();
-                  }}
-                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition cursor-pointer ${
-                    item.label === activeNav || item.active
-                      ? 'bg-purple-50 text-purple-700 font-extrabold border border-purple-200'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Icon className={`w-4 h-4 ${item.label === activeNav || item.active ? 'text-purple-600' : 'text-slate-400'}`} />
-                    <span>{item.label}</span>
-                  </div>
-                  {item.badge && (
-                    <span className="bg-emerald-100 text-emerald-700 border border-emerald-300 text-[9px] px-1.5 py-0.5 rounded-full uppercase font-mono">
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+          {/* Back to Dashboard Button */}
+          <nav className="shrink-0 text-xs font-bold">
+            <Link
+              href="/"
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition cursor-pointer"
+              style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--elevated)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'oklch(0.26 0.028 275 / 50%)'}
+            >
+              <ArrowLeft className="w-4 h-4" style={{ color: 'var(--primary-glow)' }} />
+              <span className="num text-[11px] uppercase tracking-wider">Back to Dashboard</span>
+            </Link>
           </nav>
+
+          {/* Divider */}
+          <div className="h-[1px] shrink-0" style={{ background: 'var(--sidebar-border)' }} />
+
+          {/* Model Selection Checklist (Fills Space) */}
+          <div className="flex-1 flex flex-col min-h-0 space-y-3">
+            <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-muted-foreground shrink-0" style={{ fontSize: '10px' }}>
+              <span>Select Models</span>
+              <span className="num text-[10px] px-2 py-0.5 rounded-md" style={{ background: 'oklch(0.26 0.028 275 / 50%)', border: '1px solid var(--border)' }}>
+                {selectedModelIds.length} Selected
+              </span>
+            </div>
+
+            <div className="relative shrink-0">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5" style={{ color: 'var(--muted-foreground)' }} />
+              <input
+                type="text"
+                placeholder="Search models..."
+                value={modelSearchQuery}
+                onChange={e => setModelSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 rounded-xl text-xs focus:outline-none"
+                style={{ border: '1px solid var(--border)', background: 'oklch(0.20 0.015 275)', color: 'var(--foreground)' }}
+              />
+            </div>
+
+            <div className="overflow-y-auto space-y-1.5 flex-1 pr-1 border border-transparent [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
+              {isModelsLoading ? (
+                Array(6).fill(0).map((_, idx) => (
+                  <div key={idx} className="p-2 rounded-xl text-xs flex items-center justify-between animate-pulse">
+                    <div className="flex items-center gap-2 truncate flex-1">
+                      <div className="w-4 h-4 rounded-full bg-zinc-800 shrink-0 animate-pulse" />
+                      <div className="h-3 bg-zinc-800 rounded-md w-28 animate-pulse" />
+                    </div>
+                    <div className="w-3.5 h-3.5 rounded bg-zinc-800 shrink-0 animate-pulse" />
+                  </div>
+                ))
+              ) : (
+                availableModels.filter(m => m.hasKey && (m.name.toLowerCase().includes(modelSearchQuery.toLowerCase()) || m.provider.toLowerCase().includes(modelSearchQuery.toLowerCase()))).map(m => {
+                  const isSelected = selectedModelIds.includes(m.id);
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => toggleModelSelection(m.id)}
+                      className="p-2 rounded-xl text-xs flex items-center justify-between cursor-pointer transition select-none"
+                      style={isSelected ? { background: 'oklch(0.75 0.17 155 / 8%)', border: '1px solid oklch(0.75 0.17 155 / 25%)', color: 'var(--success)' } : { background: 'transparent', border: '1px solid transparent', color: 'var(--muted-foreground)' }}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="text-xs shrink-0">{m.icon}</span>
+                        <span className="truncate font-semibold text-[11px]" style={{ color: isSelected ? 'var(--success)' : 'var(--foreground)' }}>{m.name.split('/').pop()}</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        readOnly
+                        className="w-3.5 h-3.5 rounded-lg border-2 accent-emerald-500 shrink-0"
+                      />
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+
+
         </div>
 
         {/* Bottom System Status */}
-        <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-3">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-500 font-medium">API System</span>
-            <span className="text-emerald-600 font-bold flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Connected
+        <div className="p-4 space-y-3 shrink-0" style={{ borderTop: '1px solid var(--sidebar-border)' }}>
+          <div className="flex items-center justify-between text-xs font-semibold">
+            <span style={{ color: 'var(--muted-foreground)' }}>API System</span>
+            <span className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--success)' }}>
+              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--success)' }} /> Connected
             </span>
           </div>
         </div>
@@ -1038,88 +1093,27 @@ export default function PlaygroundPage() {
       {/* ─── 2. MAIN WORKSPACE CONTAINER ─────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto print:hidden">
 
-        {/* Clean Header (No User Profile Section) */}
-        <header className="h-16 border-b border-slate-200/50 bg-white/40 backdrop-blur-xl px-6 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+        {/* Clean Header */}
+        <header className="h-16 px-6 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md" style={{ background: 'var(--sidebar)', borderBottom: '1px solid var(--sidebar-border)' }}>
           
           <div className="flex items-center gap-4 flex-1 min-w-0 pr-4">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0">Selected Models</span>
+            <span className="text-xs font-bold uppercase tracking-wider shrink-0" style={{ color: 'var(--muted-foreground)' }}>Active Workspace</span>
             
-            {/* Dynamic Model Selector Dropdown Trigger Button */}
-            <div className="relative" ref={dropdownRef}>
-              <button
-                onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-bold flex items-center gap-2 cursor-pointer transition shrink-0"
-              >
-                <span className="w-2 h-2 rounded-full bg-purple-600" />
-                <span>{selectedModelIds.length} Models Selected</span>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-              </button>
-
-              {/* Dynamic Model Multi-Select Dropdown Box */}
-              {isModelDropdownOpen && (
-                <div className="absolute left-0 mt-2 w-84 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl z-50 space-y-2">
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Search API models..."
-                      value={modelSearchQuery}
-                      onChange={e => setModelSearchQuery(e.target.value)}
-                      className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-purple-600"
-                    />
-                  </div>
-
-                  <div className="flex gap-1.5 pb-1">
-                    <button onClick={handleSelectAllPlaygroundModels} className="flex-1 text-[11px] py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition-colors font-semibold">Select All</button>
-                    <button onClick={handleClearAllPlaygroundModels} className="flex-1 text-[11px] py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors font-semibold">Clear All</button>
-                  </div>
-
-                  <div className="max-h-64 overflow-y-auto space-y-1">
-                    {availableModels.filter(m => m.hasKey && (m.name.toLowerCase().includes(modelSearchQuery.toLowerCase()) || m.provider.toLowerCase().includes(modelSearchQuery.toLowerCase()))).map(m => {
-                      const isSelected = selectedModelIds.includes(m.id);
-                      return (
-                        <div
-                          key={m.id}
-                          onClick={() => toggleModelSelection(m.id)}
-                          className={`p-2.5 rounded-xl border text-xs flex items-center justify-between cursor-pointer transition ${
-                            isSelected
-                              ? 'bg-purple-50 border-purple-200 text-purple-900 font-bold'
-                              : 'bg-white border-transparent hover:bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span>{m.icon}</span>
-                            <div>
-                              <div className="font-bold">{m.provider} - {m.name}</div>
-                              <div className="flex items-center gap-2 text-[10px]">
-                                <span className="text-emerald-600 font-bold flex items-center gap-0.5">✓ Ready</span>
-                                <span className="text-slate-400">• {m.cost}</span>
-                              </div>
-                            </div>
-                          </div>
-                          {isSelected && <Check className="w-4 h-4 text-purple-600" />}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Selected Active Model Badges */}
             <div 
-              className="hidden lg:flex items-center gap-1.5 overflow-x-auto flex-1 [&::-webkit-scrollbar]:hidden"
+              className="flex items-center gap-1.5 overflow-x-auto flex-1 [&::-webkit-scrollbar]:hidden"
               style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
             >
               {activeModelsList.map(m => (
                 <span
                   key={m.id}
                   title={`${m.provider} - ${m.name}`}
-                  className="px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-700 flex items-center gap-1.5 shrink-0 max-w-[160px]"
+                  className="px-2.5 py-1 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 shrink-0 max-w-[180px]"
+                  style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
                 >
                   <span className="shrink-0">{m.icon}</span>
                   <span className="truncate">{m.provider} - {m.name}</span>
-                  <button onClick={() => toggleModelSelection(m.id)} className="text-slate-400 hover:text-slate-700 shrink-0">
+                  <button onClick={() => toggleModelSelection(m.id)} className="hover:text-foreground shrink-0 cursor-pointer pointer-events-auto" style={{ color: 'var(--muted-foreground)' }}>
                     <X className="w-3 h-3" />
                   </button>
                 </span>
@@ -1131,9 +1125,10 @@ export default function PlaygroundPage() {
           <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={() => setIsPromptLibraryOpen(true)}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer transition"
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+              style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
             >
-              <Bookmark className="w-3.5 h-3.5 text-purple-600" /> 15 JS Presets
+              <Bookmark className="w-3.5 h-3.5" style={{ color: 'var(--primary-glow)' }} /> <span className="num">15</span> JS Presets
             </button>
           </div>
 
@@ -1143,15 +1138,15 @@ export default function PlaygroundPage() {
         <div className="p-6 space-y-6 max-w-[1400px] w-full mx-auto">
 
           {/* ─── 3. PROMPT INPUT CARD ────────────────────────────────────────── */}
-          <section className="border border-white/60 rounded-3xl p-5 shadow-2xl shadow-purple-900/5 space-y-4 transition-all bg-white/60 backdrop-blur-2xl text-slate-900 hover:shadow-purple-900/10">
+          <section className="panel p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-extrabold text-sm flex items-center gap-2 text-slate-900">
+              <h2 className="font-semibold text-sm flex items-center gap-2" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>
                 Enter your JavaScript query
               </h2>
-              <span className="text-[10px] text-slate-400 font-mono">Executing {selectedModelIds.length} API models</span>
+              <span className="text-[10px] font-mono" style={{ color: 'var(--muted-foreground)' }}>Executing <span className="num">{selectedModelIds.length}</span> API models</span>
             </div>
 
-            <div className="relative border border-slate-200 rounded-2xl focus-within:border-purple-600 transition-all p-3 bg-slate-50 text-slate-900">
+            <div className="relative rounded-2xl p-3 focus-within:border-foreground transition-all" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)' }}>
               <textarea
                 value={promptText}
                 onChange={e => setPromptText(e.target.value)}
@@ -1163,36 +1158,40 @@ export default function PlaygroundPage() {
                 }}
                 placeholder="Type a JavaScript program request (e.g. Write a JavaScript function to reverse a string)..."
                 className="w-full bg-transparent border-none text-sm focus:outline-none resize-none min-h-[60px] font-sans"
+                style={{ color: 'var(--foreground)' }}
                 rows={2}
               />
 
-              <div className="flex items-center justify-between pt-2 border-t border-slate-200/60">
+              <div className="flex items-center justify-between pt-2" style={{ borderTop: '1px solid var(--border)' }}>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setIsSystemPromptOpen(!isSystemPromptOpen)}
-                    className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                    style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
                   >
-                    <Sliders className="w-3.5 h-3.5 text-purple-600" /> System Persona
+                    <Sliders className="w-3.5 h-3.5" style={{ color: 'var(--primary-glow)' }} /> System Persona
                   </button>
 
                   <button
                     onClick={() => setIsPromptLibraryOpen(true)}
-                    className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                    style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
                   >
-                    <Bookmark className="w-3.5 h-3.5 text-indigo-600" /> JavaScript Presets
+                    <Bookmark className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} /> JavaScript Presets
                   </button>
                 </div>
 
                 <button
                   onClick={isGenerating ? handleStopAll : () => handleRunBenchmark()}
                   disabled={!isGenerating && !promptText.trim()}
-                  className={`px-6 py-2.5 rounded-2xl font-extrabold text-xs flex items-center gap-2 shadow-lg transition cursor-pointer ${
+                  className="px-6 py-2.5 rounded-xl font-semibold text-xs flex items-center gap-2 transition cursor-pointer"
+                  style={
                     isGenerating
-                      ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-600/30'
+                      ? { background: 'var(--destructive)', color: 'var(--destructive-foreground)', boxShadow: '0 0 12px var(--destructive)' }
                       : !promptText.trim()
-                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                        : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-600/30'
-                  }`}
+                        ? { background: 'oklch(1 0 0 / 8%)', color: 'var(--muted-foreground)', cursor: 'not-allowed' }
+                        : { backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)', boxShadow: 'var(--shadow-glow)' }
+                  }
                 >
                   {isGenerating ? (
                     <>
@@ -1208,12 +1207,13 @@ export default function PlaygroundPage() {
 
               {/* Expandable System Instructions Editor */}
               {isSystemPromptOpen && (
-                <div className="mt-3 pt-3 border-t border-slate-200 animate-fade-in space-y-2">
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">System Persona Prompt</label>
+                <div className="mt-3 pt-3 animate-fade-in space-y-2" style={{ borderTop: '1px solid var(--border)' }}>
+                  <label className="text-[11px] font-bold uppercase tracking-wider block" style={{ color: 'var(--muted-foreground)' }}>System Persona Prompt</label>
                   <textarea
                     value={systemPrompt}
                     onChange={e => setSystemPrompt(e.target.value)}
-                    className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-purple-600 font-mono"
+                    className="w-full p-2.5 rounded-xl text-xs focus:outline-none font-mono"
+                    style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 20%)', color: 'var(--foreground)' }}
                     rows={2}
                   />
                 </div>
@@ -1230,21 +1230,21 @@ export default function PlaygroundPage() {
               return (
                 <div
                   key={model.id}
-                  className="border border-white/60 rounded-3xl p-5 shadow-xl shadow-indigo-900/5 flex flex-col justify-between transition-all duration-300 bg-white/60 backdrop-blur-2xl text-slate-900 relative hover:-translate-y-1 hover:shadow-indigo-900/15"
+                  className="panel flex flex-col justify-between transition-all duration-300 relative hover:-translate-y-1 p-5"
                 >
                   
                   {/* Model Output Header */}
                   <div>
-                    <div className="flex items-center justify-between border-b border-slate-200 pb-3.5 mb-4">
+                    <div className="flex items-center justify-between pb-3.5 mb-4" style={{ borderBottom: '1px solid var(--border)' }}>
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-2xl bg-purple-100 border border-purple-200 flex items-center justify-center text-purple-700 text-lg shadow-sm font-bold">
+                        <div className="w-9 h-9 rounded-2xl flex items-center justify-center text-lg shadow-sm font-bold" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)' }}>
                           {model.icon}
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h3 className="font-extrabold text-sm text-slate-900">{model.provider} - {model.name}</h3>
+                            <h3 className="font-semibold text-sm" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>{model.provider} - {model.name}</h3>
                           </div>
-                          <span className="text-[11px] text-slate-500 font-medium">Real API Stream</span>
+                          <span className="text-[11px] font-medium" style={{ color: 'var(--muted-foreground)' }}>Real API Stream</span>
                         </div>
                       </div>
 
@@ -1253,18 +1253,18 @@ export default function PlaygroundPage() {
                         {output.streaming && (
                           <button
                             onClick={() => handleStopModel(model.id)}
-                            className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-100 hover:bg-red-200 rounded-lg flex items-center gap-1 transition-colors"
+                            className="px-2 py-1 text-[10px] font-bold text-red-400 bg-red-950/40 hover:bg-red-950/60 rounded-lg flex items-center gap-1 transition-colors border border-red-900/40"
                           >
                             <XCircle className="w-3 h-3" /> Stop
                           </button>
                         )}
                         <div className="text-right">
-                          <span className="text-[10px] text-slate-400 font-bold block">LATENCY</span>
-                          <span className="font-bold text-slate-900">{output.metrics.latency}</span>
+                          <span className="text-[10px] font-bold block" style={{ color: 'var(--muted-foreground)' }}>LATENCY</span>
+                          <span className="font-bold num text-xs" style={{ color: 'var(--foreground)' }}>{output.metrics.latency}</span>
                         </div>
                         <div className="text-right hidden sm:block">
-                          <span className="text-[10px] text-slate-400 font-bold block">TOKENS</span>
-                          <span className="font-bold text-slate-900">{output.metrics.tokens}</span>
+                          <span className="text-[10px] font-bold block" style={{ color: 'var(--muted-foreground)' }}>TOKENS</span>
+                          <span className="font-bold num text-xs" style={{ color: 'var(--foreground)' }}>{output.metrics.tokens}</span>
                         </div>
                       </div>
                     </div>
@@ -1272,62 +1272,64 @@ export default function PlaygroundPage() {
                     {/* Output Text & Code Display Area */}
                     <div className="min-h-[220px] text-xs leading-relaxed max-h-[420px] overflow-y-auto space-y-2 pr-1 font-sans">
                       {output.streaming && !output.text && (
-                        <div className="flex flex-col items-center justify-center h-48 space-y-3 text-slate-500 font-mono">
-                          <RefreshCw className="w-6 h-6 animate-spin text-purple-600" />
-                          <span className="font-bold">Streaming response from {model.provider}...</span>
+                        <div className="flex flex-col items-center justify-center h-48 space-y-3 font-mono" style={{ color: 'var(--muted-foreground)' }}>
+                          <RefreshCw className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-glow)' }} />
+                          <span className="font-semibold text-xs">Streaming response from {model.provider}...</span>
                         </div>
                       )}
 
                       {!output.streaming && !output.text && !output.error && (
-                        <div className="flex flex-col items-center justify-center h-48 space-y-2 text-slate-400 font-mono">
-                          <Code className="w-8 h-8 text-slate-300" />
-                          <span>Ready for evaluation. Enter prompt and click Run.</span>
+                        <div className="flex flex-col items-center justify-center h-48 space-y-2 font-mono" style={{ color: 'var(--muted-foreground)' }}>
+                          <Code className="w-6 h-6" style={{ color: 'var(--border)' }} />
+                          <span className="text-xs">Ready for evaluation. Enter prompt and click Run.</span>
                         </div>
                       )}
 
                       {/* Real API Key or Execution Error Banner */}
                       {output.error && (
-                        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 space-y-2">
+                        <div className="p-4 rounded-2xl text-rose-300 space-y-2" style={{ border: '1px solid oklch(0.65 0.2 350 / 20%)', background: 'oklch(0.65 0.2 350 / 10%)' }}>
                           <div className="flex items-center gap-2 font-bold text-xs">
-                            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                            <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
                             <span>API Configuration Required</span>
                           </div>
                           <p className="text-[11px] leading-relaxed font-mono">{output.error}</p>
-                          <p className="text-[10px] text-rose-600 font-medium">Please configure the corresponding API key inside the server's environment variables or local <code>config.json</code> file.</p>
+                          <p className="text-[10px] font-medium" style={{ color: 'var(--muted-foreground)' }}>Please configure the corresponding API key inside the server's environment variables or local <code>config.json</code> file.</p>
                         </div>
                       )}
 
                       {parsedSegments.map((seg, idx) => {
                         if (seg.type === 'text') {
                           return (
-                            <div key={idx} className="my-2">
+                            <div key={idx} className="my-2" style={{ color: 'var(--muted-foreground)' }}>
                               {renderFormattedText(seg.content)}
                             </div>
                           );
                         }
 
                         return (
-                          <div key={idx} className="my-2.5 rounded-2xl bg-white border border-slate-300 overflow-hidden shadow-sm text-slate-900">
-                            <div className="bg-slate-100/90 px-3.5 py-2 border-b border-slate-200 flex items-center justify-between text-[10px] font-mono text-purple-700 font-extrabold uppercase tracking-wide">
-                              <span className="flex items-center gap-1.5"><Code className="w-3.5 h-3.5 text-purple-600" /> {seg.language || 'javascript'}</span>
+                          <div key={idx} className="my-2.5 rounded-2xl overflow-hidden shadow-sm animate-fade-in" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 20%)' }}>
+                            <div className="px-3.5 py-2 flex items-center justify-between text-[10px] font-mono uppercase tracking-wide" style={{ background: 'oklch(0.26 0.028 275 / 50%)', borderBottom: '1px solid var(--border)' }}>
+                              <span className="flex items-center gap-1.5 font-bold" style={{ color: 'var(--primary-glow)' }}><Code className="w-3.5 h-3.5" /> {seg.language || 'javascript'}</span>
                               <div className="flex items-center gap-2">
                                 <button
                                   onClick={() => handleRunCode(seg.code, seg.language || 'javascript', `${model.name} Snippet`)}
-                                  className="text-purple-700 hover:text-purple-900 font-bold flex items-center gap-1 cursor-pointer transition bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-lg border border-purple-200"
+                                  className="font-bold flex items-center gap-1 cursor-pointer transition px-2.5 py-1 rounded-lg border"
+                                  style={{ border: '1px solid var(--border)', background: 'oklch(0.75 0.17 155 / 10%)', color: 'var(--success)' }}
                                 >
-                                  <Play className="w-3 h-3 fill-current" />
+                                  <Play className="w-2.5 h-2.5 fill-current" />
                                   <span>Run Sandbox</span>
                                 </button>
                                 <button
                                   onClick={() => handleCopy(seg.code, `${model.id}-${idx}`)}
-                                  className="text-slate-600 hover:text-purple-700 font-semibold flex items-center gap-1 cursor-pointer transition px-2 py-1 rounded-lg hover:bg-slate-200"
+                                  className="font-semibold flex items-center gap-1 cursor-pointer transition px-2 py-1 rounded-lg"
+                                  style={{ color: 'var(--muted-foreground)' }}
                                 >
-                                  {copiedModelId === `${model.id}-${idx}` ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                  {copiedModelId === `${model.id}-${idx}` ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
                                   <span>Copy</span>
                                 </button>
                               </div>
                             </div>
-                            <pre className="p-4 bg-[#f8fafc] text-slate-900 font-mono text-xs font-medium leading-relaxed overflow-x-auto whitespace-pre max-h-72">
+                            <pre className="p-4 font-mono text-xs leading-relaxed overflow-x-auto whitespace-pre max-h-72" style={{ background: 'oklch(0.2 0.028 275 / 20%)', color: 'oklch(0.9 0.02 275)' }}>
                               <code>{seg.code}</code>
                             </pre>
                           </div>
@@ -1337,13 +1339,13 @@ export default function PlaygroundPage() {
                   </div>
 
                   {/* Output Footer Action Bar */}
-                  <div className="pt-3 border-t border-slate-200 mt-4 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-3 text-slate-500 font-bold">
+                  <div className="pt-3 mt-4 flex items-center justify-between text-xs" style={{ borderTop: '1px solid var(--border)' }}>
+                    <div className="flex items-center gap-3 font-semibold" style={{ color: 'var(--muted-foreground)' }}>
                       <button
                         onClick={() => handleCopy(output.text, model.id)}
-                        className="hover:text-purple-600 flex items-center gap-1.5 transition cursor-pointer"
+                        className="hover:text-foreground flex items-center gap-1.5 transition cursor-pointer"
                       >
-                        {copiedModelId === model.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedModelId === model.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                         <span>Copy Response</span>
                       </button>
                     </div>
@@ -1359,23 +1361,23 @@ export default function PlaygroundPage() {
       </div>
 
       {/* ─── 5. RIGHT SIDEBAR BENCHMARK SUMMARY (DYNAMIC DATA) ───────────── */}
-      <aside className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-slate-200/50 bg-white/40 backdrop-blur-xl p-5 flex flex-col justify-between flex-shrink-0 text-slate-900 print:hidden">
+      <aside className="w-full lg:w-80 flex flex-col justify-between flex-shrink-0 print:hidden p-5" style={{ borderLeft: '1px solid var(--sidebar-border)', background: 'var(--sidebar)' }}>
         <div className="space-y-6">
 
           {!hasApiResponse ? (
-            <div className="p-5 rounded-3xl border border-dashed border-purple-200 bg-purple-50/40 text-center space-y-3">
-              <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center mx-auto shadow-sm">
-                <BarChart3 className="w-5 h-5" />
+            <div className="p-5 rounded-3xl text-center space-y-3" style={{ border: '1px dashed var(--border)', background: 'oklch(0.26 0.028 275 / 20%)' }}>
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center mx-auto shadow-sm" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)' }}>
+                <BarChart3 className="w-5 h-5" style={{ color: 'var(--accent)' }} />
               </div>
               <div className="space-y-1">
-                <h4 className="font-extrabold text-xs text-slate-900">API Execution Summary</h4>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
+                <h4 className="font-semibold text-xs" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>API Execution Summary</h4>
+                <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
                   The execution summary and real-time benchmark metrics will be displayed here automatically after receiving a response from the API.
                 </p>
               </div>
               <div className="pt-2">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-purple-200 text-[10px] font-bold text-purple-700 shadow-2xs">
-                  <Clock className="w-3 h-3 text-purple-500 animate-pulse" /> Awaiting API Execution
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-semibold" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}>
+                  <Clock className="w-3 h-3 animate-pulse" style={{ color: 'var(--primary-glow)' }} /> Awaiting API Execution
                 </span>
               </div>
             </div>
@@ -1383,57 +1385,58 @@ export default function PlaygroundPage() {
             <>
               {/* Benchmark Summary Header */}
               <div>
-                <h3 className="font-extrabold text-sm flex items-center gap-2 mb-4 text-slate-900">
-                  <BarChart3 className="w-4 h-4 text-purple-600" /> API Execution Summary
+                <h3 className="font-semibold text-sm flex items-center gap-2 mb-4" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>
+                  <BarChart3 className="w-4 h-4" style={{ color: 'var(--primary-glow)' }} /> API Execution Summary
                 </h3>
 
                 {/* Dynamic Benchmark Metrics Breakdown List */}
                 <div className="space-y-2 text-xs">
-                  <div className="p-3 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-between">
+                  <div className="p-3 rounded-xl flex items-center justify-between" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)' }}>
                     <div>
-                      <span className="text-[10px] text-slate-400 font-bold uppercase block">⚡ Avg Latency</span>
-                      <span className="font-extrabold">{dynamicSummaryStats.avgLatency}</span>
+                      <span className="text-[10px] font-bold uppercase block" style={{ color: 'var(--muted-foreground)' }}>⚡ Avg Latency</span>
+                      <span className="font-semibold num" style={{ color: 'var(--foreground)' }}>{dynamicSummaryStats.avgLatency}</span>
                     </div>
-                    <span className="text-emerald-600 font-mono font-extrabold">{dynamicSummaryStats.avgLatency}</span>
+                    <span className="font-mono font-bold num" style={{ color: 'var(--success)' }}>{dynamicSummaryStats.avgLatency}</span>
                   </div>
 
-                  <div className="p-3 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-between">
+                  <div className="p-3 rounded-xl flex items-center justify-between" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)' }}>
                     <div>
-                      <span className="text-[10px] text-slate-400 font-bold uppercase block">📊 API Success / Error</span>
-                      <span className="font-extrabold">{dynamicSummaryStats.successCount} Passed</span>
+                      <span className="text-[10px] font-bold uppercase block" style={{ color: 'var(--muted-foreground)' }}>📊 API Success / Error</span>
+                      <span className="font-semibold num" style={{ color: 'var(--foreground)' }}>{dynamicSummaryStats.successCount} Passed</span>
                     </div>
-                    <span className="text-emerald-600 font-mono font-extrabold">{dynamicSummaryStats.failureCount} Errors</span>
+                    <span className="font-mono font-bold num" style={{ color: dynamicSummaryStats.failureCount > 0 ? 'var(--destructive)' : 'var(--muted-foreground)' }}>{dynamicSummaryStats.failureCount} Errors</span>
                   </div>
                 </div>
               </div>
 
               {/* Quick Stats Block */}
-              <div className="pt-4 border-t border-slate-200 space-y-3">
-                <h4 className="font-extrabold text-xs flex items-center gap-1.5 text-slate-900">
-                  <Zap className="w-3.5 h-3.5 text-purple-600" /> Real-time Execution Stats
+              <div className="pt-4 space-y-3" style={{ borderTop: '1px solid var(--border)' }}>
+                <h4 className="font-semibold text-xs flex items-center gap-1.5" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>
+                  <Zap className="w-3.5 h-3.5" style={{ color: 'var(--primary-glow)' }} /> Real-time Execution Stats
                 </h4>
 
                 <div className="space-y-2 text-xs">
-                  <div className="flex justify-between text-slate-500">
+                  <div className="flex justify-between" style={{ color: 'var(--muted-foreground)' }}>
                     <span>Total Benchmark Runs</span>
-                    <span className="font-bold text-slate-900 font-mono">{dynamicSummaryStats.totalRuns}</span>
+                    <span className="font-bold num" style={{ color: 'var(--foreground)' }}>{dynamicSummaryStats.totalRuns}</span>
                   </div>
-                  <div className="flex justify-between text-slate-500">
+                  <div className="flex justify-between" style={{ color: 'var(--muted-foreground)' }}>
                     <span>Active Models Tested</span>
-                    <span className="font-bold text-slate-900 font-mono">{dynamicSummaryStats.modelsTestedCount}</span>
+                    <span className="font-bold num" style={{ color: 'var(--foreground)' }}>{dynamicSummaryStats.modelsTestedCount}</span>
                   </div>
-                  <div className="flex justify-between text-slate-500">
+                  <div className="flex justify-between" style={{ color: 'var(--muted-foreground)' }}>
                     <span>Total Tokens Generated</span>
-                    <span className="font-bold text-slate-900 font-mono">{dynamicSummaryStats.totalTokens}</span>
+                    <span className="font-bold num" style={{ color: 'var(--foreground)' }}>{dynamicSummaryStats.totalTokens}</span>
                   </div>
                 </div>
                 
                 {/* View Full Report Button */}
                 <button
                   onClick={() => setIsReportModalOpen(true)}
-                  className="w-full mt-4 py-2 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+                  className="w-full mt-4 py-2 px-4 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
+                  style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
                 >
-                  <FileText className="w-4 h-4" />
+                  <FileText className="w-4 h-4" style={{ color: 'var(--accent)' }} />
                   <span>View Full Report</span>
                 </button>
               </div>
@@ -1446,12 +1449,12 @@ export default function PlaygroundPage() {
       {/* ─── MODAL: 15 SIMPLE JAVASCRIPT PRESETS LIBRARY ────────────────── */}
       {isPromptLibraryOpen && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="border border-slate-200 bg-white text-slate-900 rounded-3xl shadow-2xl max-w-2xl w-full p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="font-extrabold text-base flex items-center gap-2">
-                <Bookmark className="w-5 h-5 text-purple-600" /> 15 Simple JavaScript Presets
+          <div className="rounded-3xl shadow-2xl max-w-2xl w-full p-6 space-y-4" style={{ border: '1px solid var(--border)', background: 'var(--elevated)', color: 'var(--foreground)' }}>
+            <div className="flex items-center justify-between pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="font-semibold text-base flex items-center gap-2" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>
+                <Bookmark className="w-5 h-5" style={{ color: 'var(--primary-glow)' }} /> <span className="num">15</span> Simple JavaScript Presets
               </h3>
-              <button onClick={() => setIsPromptLibraryOpen(false)} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer">
+              <button onClick={() => setIsPromptLibraryOpen(false)} className="p-1 rounded-lg hover:text-foreground cursor-pointer" style={{ color: 'var(--muted-foreground)' }}>
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1465,13 +1468,14 @@ export default function PlaygroundPage() {
                     setIsPromptLibraryOpen(false);
                     handleRunBenchmark(preset.prompt);
                   }}
-                  className="w-full p-3 rounded-2xl border text-left transition flex items-center justify-between cursor-pointer group bg-slate-50 border-slate-200 hover:border-purple-600 hover:bg-purple-50/50"
+                  className="w-full p-3 rounded-xl border text-left transition flex items-center justify-between cursor-pointer group hover:bg-white/5"
+                  style={{ borderColor: 'var(--border)', background: 'oklch(0.26 0.028 275 / 30%)', color: 'var(--foreground)' }}
                 >
                   <div>
-                    <span className="font-bold text-xs group-hover:text-purple-700 block text-slate-900">{idx + 1}. {preset.label}</span>
-                    <span className="text-[11px] text-slate-500 block truncate">{preset.prompt}</span>
+                    <span className="font-semibold text-xs block" style={{ color: 'var(--foreground)' }}><span className="num">{idx + 1}</span>. {preset.label}</span>
+                    <span className="text-[11px] block truncate" style={{ color: 'var(--muted-foreground)' }}>{preset.prompt}</span>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-purple-600 group-hover:translate-x-1 transition-transform" />
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" style={{ color: 'var(--primary-glow)' }} />
                 </button>
               ))}
             </div>
@@ -1482,43 +1486,44 @@ export default function PlaygroundPage() {
       {/* ─── MODAL: COMPREHENSIVE PERFORMANCE REPORT ────────────────────── */}
       {isReportModalOpen && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in print:static print:bg-transparent print:p-0 print:block">
-          <div className="border border-slate-200 bg-white text-slate-900 rounded-3xl shadow-2xl max-w-5xl w-full flex flex-col max-h-[90vh] print:max-h-none print:shadow-none print:border-none print:block">
-            <div className="flex items-center justify-between border-b border-slate-200 p-6 flex-shrink-0 print:hidden">
-              <h3 className="font-extrabold text-lg flex items-center gap-2">
-                <BarChart3 className="w-6 h-6 text-purple-600" /> Comprehensive Performance Report
+          <div className="rounded-3xl shadow-2xl max-w-5xl w-full flex flex-col max-h-[90vh] print:max-h-none print:shadow-none print:border-none print:block" style={{ border: '1px solid var(--border)', background: 'var(--elevated)', color: 'var(--foreground)' }}>
+            <div className="flex items-center justify-between p-6 flex-shrink-0 print:hidden" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="font-semibold text-lg flex items-center gap-2" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>
+                <BarChart3 className="w-6 h-6" style={{ color: 'var(--primary-glow)' }} /> Comprehensive Performance Report
               </h3>
               <div className="flex items-center gap-3">
                 <button 
                   onClick={exportToPDF}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 cursor-pointer transition-transform hover:-translate-y-px"
+                  style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)', boxShadow: 'var(--shadow-glow)' }}
                 >
                   <Download className="w-4 h-4" /> Export PDF
                 </button>
-                <button onClick={() => setIsReportModalOpen(false)} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer">
+                <button onClick={() => setIsReportModalOpen(false)} className="p-1 rounded-lg hover:text-foreground cursor-pointer" style={{ color: 'var(--muted-foreground)' }}>
                   <X className="w-6 h-6" />
                 </button>
               </div>
             </div>
 
             <div className="p-6 overflow-y-auto print:overflow-visible print:p-0">
-              <div className="space-y-8 bg-white p-4" ref={reportRef}>
+              <div className="space-y-8 p-4 print:bg-white print:text-slate-900" style={{ background: 'transparent' }} ref={reportRef}>
                 
                 {/* PDF Header (Only visible in exported PDF but good for preview) */}
-                <div className="border-b border-slate-200 pb-4 mb-4">
-                  <h2 className="text-2xl font-black text-slate-900">AI Benchmark Analyzer - Performance Report</h2>
-                  <p className="text-slate-500 text-sm mt-1">Generated on {new Date().toLocaleString()}</p>
+                <div className="pb-4 mb-4 print:border-b print:border-slate-200" style={{ borderBottom: '1px solid var(--border)' }}>
+                  <h2 className="text-2xl font-semibold print:text-slate-900" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>AI Benchmark Analyzer - Performance Report</h2>
+                  <p className="text-sm mt-1 print:text-slate-500" style={{ color: 'var(--muted-foreground)' }}>Generated on <span className="num">{new Date().toLocaleString()}</span></p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Scatter Chart (Speed vs Cost) */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                    <h4 className="font-bold text-sm mb-4">Speed vs. Cost Tradeoff</h4>
+                  <div className="p-4 rounded-xl print:bg-slate-50 print:border-slate-200" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)' }}>
+                    <h4 className="font-semibold text-sm mb-4 print:text-slate-900" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>Speed vs. Cost Tradeoff</h4>
                     <div className="h-64 w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                          <XAxis type="number" dataKey="speed" name="Speed" unit=" t/s" tick={{ fontSize: 10 }} />
-                          <YAxis type="number" dataKey="cost" name="Cost" unit="$" tick={{ fontSize: 10 }} />
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                          <XAxis type="number" dataKey="speed" name="Speed" unit=" t/s" tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} />
+                          <YAxis type="number" dataKey="cost" name="Cost" unit="$" tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} />
                           <ZAxis type="category" dataKey="name" name="Model" />
                           <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} content={<CustomTooltip />} />
                           <Scatter name="Models" data={performanceChartData}>
@@ -1532,20 +1537,22 @@ export default function PlaygroundPage() {
                   </div>
 
                   {/* Bar Chart (Latency) */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                    <h4 className="font-bold text-sm mb-4">Latency Comparison (Seconds)</h4>
+                  <div className="p-4 rounded-xl print:bg-slate-50 print:border-slate-200" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)' }}>
+                    <h4 className="font-semibold text-sm mb-4 print:text-slate-900" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>Latency Comparison (Seconds)</h4>
                     <div className="h-64 w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={performanceChartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                          <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-30} textAnchor="end" height={60} />
-                          <YAxis tick={{ fontSize: 10 }} unit="s" />
-                          <RechartsTooltip />
-                          <Bar dataKey="latency" name="Latency (s)" radius={[4, 4, 0, 0]}>
-                            {performanceChartData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.fill} />
-                            ))}
-                          </Bar>
+                          <defs>
+                            <linearGradient id="latencyGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="var(--primary-glow)" stopOpacity={0.85}/>
+                              <stop offset="100%" stopColor="var(--primary-glow)" stopOpacity={0.15}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="oklch(1 0 0 / 8%)" />
+                          <XAxis dataKey="name" tick={{ fontSize: 9, fill: 'var(--muted-foreground)' }} interval={0} tickFormatter={(val) => val.split('/').pop()} angle={-30} textAnchor="end" height={60} />
+                          <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} unit="s" />
+                          <RechartsTooltip contentStyle={{ background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: 12, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--foreground)' }} />
+                          <Bar dataKey="latency" name="Latency (s)" radius={[6, 6, 0, 0]} maxBarSize={32} fill="url(#latencyGrad)" />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -1553,30 +1560,32 @@ export default function PlaygroundPage() {
                 </div>
 
                 {/* Bar Chart (Speed) */}
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                  <h4 className="font-bold text-sm mb-4">Throughput Comparison (Tokens per Second)</h4>
+                <div className="p-4 rounded-xl print:bg-slate-50 print:border-slate-200" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)' }}>
+                  <h4 className="font-semibold text-sm mb-4 print:text-slate-900" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>Throughput Comparison (Tokens per Second)</h4>
                   <div className="h-64 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={performanceChartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-30} textAnchor="end" height={60} />
-                        <YAxis tick={{ fontSize: 10 }} unit=" t/s" />
-                        <RechartsTooltip />
-                        <Bar dataKey="speed" name="Tokens/sec" radius={[4, 4, 0, 0]}>
-                          {performanceChartData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.fill} />
-                          ))}
-                        </Bar>
+                        <defs>
+                          <linearGradient id="speedGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.85}/>
+                            <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.15}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="oklch(1 0 0 / 8%)" />
+                        <XAxis dataKey="name" tick={{ fontSize: 9, fill: 'var(--muted-foreground)' }} interval={0} tickFormatter={(val) => val.split('/').pop()} angle={-30} textAnchor="end" height={60} />
+                        <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} unit=" t/s" />
+                        <RechartsTooltip contentStyle={{ background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: 12, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--foreground)' }} />
+                        <Bar dataKey="speed" name="Tokens/sec" radius={[6, 6, 0, 0]} maxBarSize={32} fill="url(#speedGrad)" />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
 
                 {/* Data Table */}
-                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                <div className="rounded-xl overflow-hidden print:border-slate-200 print:bg-white" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)' }}>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
+                      <thead className="print:bg-slate-50 print:border-slate-200 print:text-slate-500 font-bold uppercase tracking-wider text-[11px]" style={{ background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--muted-foreground)', borderBottom: '1px solid var(--border)' }}>
                         <tr>
                           <th className="px-4 py-3">Provider</th>
                           <th className="px-4 py-3">Model</th>
@@ -1586,15 +1595,15 @@ export default function PlaygroundPage() {
                           <th className="px-4 py-3 text-right">Cost</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
                         {performanceChartData.map((row, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50">
-                            <td className="px-4 py-3 font-semibold text-slate-700">{row.provider}</td>
-                            <td className="px-4 py-3 font-bold text-slate-900">{row.name}</td>
-                            <td className="px-4 py-3 text-right">{row.latency}s</td>
-                            <td className="px-4 py-3 text-right font-mono">{row.tokens}</td>
-                            <td className="px-4 py-3 text-right font-bold text-emerald-600">{row.speed}</td>
-                            <td className="px-4 py-3 text-right font-bold text-rose-600">${row.cost.toFixed(4)}</td>
+                          <tr key={idx} className="print:hover:bg-slate-50" style={{ borderBottom: '1px solid var(--border)' }}>
+                            <td className="px-4 py-3 font-semibold print:text-slate-700">{row.provider}</td>
+                            <td className="px-4 py-3 font-bold print:text-slate-900" style={{ color: 'var(--foreground)' }}>{row.name}</td>
+                            <td className="px-4 py-3 text-right num">{row.latency}s</td>
+                            <td className="px-4 py-3 text-right num">{row.tokens}</td>
+                            <td className="px-4 py-3 text-right font-bold num" style={{ color: 'var(--success)' }}>{row.speed}</td>
+                            <td className="px-4 py-3 text-right font-bold num" style={{ color: 'var(--accent)' }}>${row.cost.toFixed(4)}</td>
                           </tr>
                         ))}
                         {performanceChartData.length === 0 && (
@@ -1617,18 +1626,18 @@ export default function PlaygroundPage() {
       {/* ─── MODAL: LIVE SANDBOX EXECUTION (BRIGHT THEME) ───────────────── */}
       {sandboxCode && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white border border-slate-300 rounded-3xl shadow-2xl max-w-5xl w-full h-[82vh] flex flex-col overflow-hidden text-slate-900">
+          <div className="rounded-3xl shadow-2xl max-w-5xl w-full h-[82vh] flex flex-col overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--elevated)', color: 'var(--foreground)' }}>
             {/* Modal Header */}
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+            <div className="p-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)' }}>
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center text-purple-700 font-bold">
-                  <Play className="w-4 h-4 fill-current" />
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center font-bold" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)' }}>
+                  <Play className="w-3.5 h-3.5 fill-current" style={{ color: 'var(--success)' }} />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-sm text-slate-900 block">
+                  <h3 className="font-semibold text-sm block" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>
                     Code Runner: {sandboxCode.title}
                   </h3>
-                  <span className="text-[10px] text-emerald-600 font-mono font-semibold">Interactive JavaScript Sandbox</span>
+                  <span className="text-[10px] font-mono font-semibold" style={{ color: 'var(--success)' }}>Interactive JavaScript Sandbox</span>
                 </div>
               </div>
 
@@ -1641,39 +1650,38 @@ export default function PlaygroundPage() {
                     setTimeout(() => setSandboxEditableCode(current), 50);
                     setSandboxActiveTab('preview');
                   }}
-                  className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm hover:-translate-y-px"
+                  style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)', boxShadow: 'var(--shadow-glow)' }}
                 >
                   <Play className="w-3.5 h-3.5 fill-current" /> Run Code
                 </button>
 
-                <div className="flex items-center gap-1 bg-slate-200/80 p-1 rounded-xl border border-slate-300 text-xs font-semibold">
+                <div className="flex items-center gap-1 p-1 rounded-xl text-xs font-semibold" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)' }}>
                   <button
                     onClick={() => setSandboxActiveTab('preview')}
-                    className={`px-3 py-1 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
-                      sandboxActiveTab === 'preview' ? 'bg-purple-600 text-white font-bold' : 'text-slate-700 hover:text-purple-700'
-                    }`}
+                    className="px-3 py-1 rounded-lg transition cursor-pointer flex items-center gap-1.5 font-semibold"
+                    style={sandboxActiveTab === 'preview' ? { background: 'oklch(0.75 0.17 155 / 15%)', color: 'var(--success)' } : { color: 'var(--muted-foreground)' }}
                   >
                     <Eye className="w-3.5 h-3.5" /> Terminal Output
                   </button>
                   <button
                     onClick={() => setSandboxActiveTab('code')}
-                    className={`px-3 py-1 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
-                      sandboxActiveTab === 'code' ? 'bg-purple-600 text-white font-bold' : 'text-slate-700 hover:text-purple-700'
-                    }`}
+                    className="px-3 py-1 rounded-lg transition cursor-pointer flex items-center gap-1.5 font-semibold"
+                    style={sandboxActiveTab === 'code' ? { background: 'oklch(0.75 0.17 155 / 15%)', color: 'var(--success)' } : { color: 'var(--muted-foreground)' }}
                   >
                     <Code className="w-3.5 h-3.5" /> Source Code
                   </button>
                 </div>
 
                 {/* Close Button */}
-                <button onClick={() => setSandboxCode(null)} className="p-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-600 hover:text-slate-900 cursor-pointer">
+                <button onClick={() => setSandboxCode(null)} className="p-1.5 rounded-xl hover:text-foreground cursor-pointer" style={{ background: 'oklch(0.26 0.028 275 / 50%)', border: '1px solid var(--border)', color: 'var(--muted-foreground)' }}>
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
             {/* Modal Body */}
-            <div className="flex-1 bg-[#f8fafc] relative overflow-hidden">
+            <div className="flex-1 relative overflow-hidden" style={{ background: 'oklch(0.2 0.028 275 / 50%)' }}>
               {sandboxActiveTab === 'preview' ? (
                 <iframe
                   key={sandboxEditableCode}
@@ -1684,11 +1692,12 @@ export default function PlaygroundPage() {
                 />
               ) : (
                 <div className="p-4 h-full flex flex-col space-y-3">
-                  <div className="flex items-center justify-between text-xs text-slate-600 font-mono">
-                    <span>Language: <strong className="text-purple-700 uppercase">JavaScript</strong></span>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span style={{ color: 'var(--muted-foreground)' }}>Language: <strong className="uppercase" style={{ color: 'var(--foreground)' }}>JavaScript</strong></span>
                     <button
                       onClick={() => handleCopy(sandboxEditableCode, 'modal-code')}
-                      className="px-3 py-1 rounded-lg bg-purple-100 hover:bg-purple-200 text-purple-800 border border-purple-200 font-bold flex items-center gap-1 cursor-pointer"
+                      className="px-3 py-1 rounded-lg font-bold flex items-center gap-1 cursor-pointer border"
+                      style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
                     >
                       <Copy className="w-3.5 h-3.5" /> Copy Code
                     </button>
@@ -1696,7 +1705,8 @@ export default function PlaygroundPage() {
                   <textarea
                     value={sandboxEditableCode}
                     onChange={e => setSandboxEditableCode(e.target.value)}
-                    className="flex-1 w-full bg-white text-slate-900 font-mono text-xs p-4 rounded-2xl border border-slate-300 focus:outline-none focus:border-purple-600 resize-none leading-relaxed font-medium shadow-inner"
+                    className="flex-1 w-full font-mono text-xs p-4 rounded-2xl focus:outline-none resize-none leading-relaxed font-medium"
+                    style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 30%)', color: 'var(--foreground)' }}
                   />
                 </div>
               )}

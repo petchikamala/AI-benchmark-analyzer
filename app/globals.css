@@ -1,30 +1,152 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
-:root {
-  --font-sans: 'Outfit', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+/*
+ * Design system: "Instrument Deck" — premium dark analytics console.
+ * Deep ink surfaces, violet/cyan signal accents, mono numerals.
+ * Adapted from silk-screen-shine reference.
+ */
 
-  --bg-app: #f3f4f8;
-  --bg-sidebar: #ffffff;
-  --bg-card: #ffffff;
-  --bg-topbar: #ffffff;
-  --border-color: #e2e8f0;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
+:root {
+  --radius: 0.875rem;
+
+  /* ── Surfaces ── */
+  --background: oklch(0.16 0.024 275);
+  --foreground: oklch(0.97 0.005 275);
+  --card: oklch(0.205 0.026 275);
+  --card-foreground: oklch(0.97 0.005 275);
+  --elevated: oklch(0.245 0.028 275);
+
+  /* ── Brand ── */
+  --primary: oklch(0.63 0.21 292);
+  --primary-foreground: oklch(0.99 0.005 275);
+  --primary-glow: oklch(0.75 0.16 300);
+
+  /* ── Secondary ── */
+  --secondary: oklch(0.26 0.028 275);
+  --secondary-foreground: oklch(0.95 0.005 275);
+  --muted: oklch(0.26 0.028 275);
+  --muted-foreground: oklch(0.68 0.02 275);
+
+  /* ── Accent (Cyan) ── */
+  --accent: oklch(0.78 0.14 195);
+  --accent-foreground: oklch(0.18 0.03 275);
+
+  /* ── Semantic ── */
+  --success: oklch(0.75 0.17 155);
+  --warning: oklch(0.82 0.16 80);
+  --destructive: oklch(0.63 0.21 20);
+  --destructive-foreground: oklch(0.99 0.005 275);
+
+  /* ── Chrome ── */
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.63 0.21 292);
+
+  /* ── Charts ── */
+  --chart-1: oklch(0.63 0.21 292);
+  --chart-2: oklch(0.78 0.14 195);
+  --chart-3: oklch(0.75 0.17 155);
+  --chart-4: oklch(0.82 0.16 80);
+  --chart-5: oklch(0.68 0.19 20);
+
+  /* ── Sidebar ── */
+  --sidebar: oklch(0.185 0.025 275);
+  --sidebar-foreground: oklch(0.9 0.01 275);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-accent: oklch(0.26 0.028 275);
+  --sidebar-accent-foreground: oklch(0.97 0.005 275);
+
+  /* ── Fonts ── */
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* ── Gradients ── */
+  --gradient-primary: linear-gradient(135deg, var(--primary), var(--primary-glow));
+  --gradient-surface: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--card) 96%, var(--primary) 4%),
+    var(--card)
+  );
+  --gradient-halo: radial-gradient(
+    120% 100% at 20% 0%,
+    color-mix(in oklab, var(--primary) 22%, transparent),
+    transparent 70%
+  );
+
+  /* ── Shadows ── */
+  --shadow-panel: 0 1px 0 0 oklch(1 0 0 / 6%) inset, 0 24px 60px -30px oklch(0.08 0.02 275 / 90%);
+  --shadow-glow: 0 0 0 1px color-mix(in oklab, var(--primary) 35%, transparent),
+    0 18px 45px -20px color-mix(in oklab, var(--primary) 55%, transparent);
 }
 
 @layer base {
+  * {
+    border-color: var(--border);
+  }
+
   body {
-    @apply antialiased min-h-screen text-slate-900;
+    background-color: var(--background);
+    color: var(--foreground);
     font-family: var(--font-sans);
-    background-color: var(--bg-app);
-    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
   }
 }
 
-/* Custom Scrollbars */
+/* ── Panel (Card) ── */
+.panel {
+  background-image: var(--gradient-surface);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 8px);
+  box-shadow: var(--shadow-panel);
+}
+
+/* ── Halo (Subtle glow overlay inside panels) ── */
+.halo {
+  position: relative;
+  overflow: hidden;
+}
+.halo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: var(--gradient-halo);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* ── Gradient Text ── */
+.gradient-text {
+  background-image: var(--gradient-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ── Mono Numerals ── */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+/* ── Grid Lines (Background pattern) ── */
+.grid-lines {
+  background-image:
+    linear-gradient(to right, oklch(1 0 0 / 3%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 3%) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+/* ── Custom Scrollbars (Dark) ── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -33,71 +155,48 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: oklch(1 0 0 / 12%);
   border-radius: 99px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: oklch(1 0 0 / 20%);
 }
 
-/* Crisp White Card */
+/* ── Legacy glass-card mapping ── */
 .glass-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.03), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  background-image: var(--gradient-surface);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 8px);
+  box-shadow: var(--shadow-panel);
 }
 
-.glass-card:hover {
-  border-color: #cbd5e1;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.06), 0 4px 10px -2px rgba(0, 0, 0, 0.04);
-}
-
-/* Gold rank #1 row highlight */
-.gold-rank-row {
-  background: linear-gradient(90deg, #fffbeb 0%, #fef3c7 100%) !important;
-  border-left: 4px solid #f59e0b !important;
-}
-
-/* Hero Section Gradient */
-.hero-banner-gradient {
-  background: linear-gradient(135deg, #6366f1 0%, #3b82f6 50%, #0284c7 100%);
-}
-
+/* ── Code Block ── */
 .code-block-embed {
   font-family: var(--font-mono);
-  background: #0f172a;
-  border: 1px solid #1e293b;
+  background: oklch(0.14 0.02 275);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 1rem;
   overflow-x: auto;
   font-size: 0.85rem;
   line-height: 1.5;
-  color: #f8fafc;
+  color: var(--foreground);
 }
 
-/* Touch scrolling optimization */
+/* ── Touch scrolling optimization ── */
 .overflow-x-auto, .overflow-y-auto {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Mobile Drawer Animations */
+/* ── Mobile Drawer Animations ── */
 @keyframes drawerSlideIn {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
-  }
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
 }
 
 @keyframes fadeInBackdrop {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .animate-drawer-in {

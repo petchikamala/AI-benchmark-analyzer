@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   LayoutDashboard,
   PlayCircle,
@@ -40,7 +40,8 @@ import {
   Eye,
   ArrowRight,
   X,
-  Lock
+  Lock,
+  Calendar
 } from 'lucide-react';
 
 import {
@@ -118,7 +119,6 @@ const NAV_ITEMS = [
   { name: 'History', icon: HistoryIcon },
   { name: 'Analytics', icon: BarChart3 },
   { name: 'Playground', icon: Code },
-  { name: 'Prompt Library', icon: Database },
 ];
 
 function generateSessionId() {
@@ -135,7 +135,103 @@ function getGroupForModel(model) {
   return "Ollama / Custom Cloud";
 }
 
+function parseInline(text) {
+  const parts = [];
+  const inlineRegex = /(\*\*.*?\*\*|`.*?`)/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = inlineRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.substring(lastIndex, match.index));
+    }
+    const token = match[1];
+    if (token.startsWith('**') && token.endsWith('**')) {
+      parts.push(<strong key={match.index} className="font-semibold" style={{ color: 'var(--foreground)' }}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('`') && token.endsWith('`')) {
+      parts.push(<code key={match.index} className="px-1 py-0.5 rounded-md font-mono text-[10px]" style={{ background: 'oklch(0.20 0.015 275)', border: '1px solid var(--border)', color: 'var(--accent)' }}>{token.slice(1, -1)}</code>);
+    }
+    lastIndex = inlineRegex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
+function renderMarkdown(text) {
+  if (!text) return null;
+  
+  const parts = [];
+  const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', content: text.substring(lastIndex, match.index) });
+    }
+    parts.push({ type: 'code', language: match[1], content: match[2] });
+    lastIndex = codeBlockRegex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push({ type: 'text', content: text.substring(lastIndex) });
+  }
+
+  return parts.map((part, index) => {
+    if (part.type === 'code') {
+      return (
+        <pre key={index} className="code-block-embed overflow-x-auto p-3.5 rounded-xl text-[11px] font-mono my-3 block whitespace-pre" style={{ background: 'oklch(0.18 0.015 275)', border: '1px solid var(--border)', color: 'oklch(0.85 0.03 200)' }}>
+          <code className={part.language ? `language-${part.language}` : ''}>
+            {part.content.trim()}
+          </code>
+        </pre>
+      );
+    } else {
+      const lines = part.content.split('\n');
+      return (
+        <div key={index} className="space-y-2 my-2">
+          {lines.map((line, lineIdx) => {
+            const trimmed = line.trim();
+            if (!trimmed) return <div key={lineIdx} className="h-1.5" />;
+
+            if (trimmed.startsWith('#')) {
+              const depth = (trimmed.match(/^#+/) || ['#'])[0].length;
+              const title = trimmed.replace(/^#+\s*/, '');
+              const sizeClass = depth === 1 ? 'text-base font-bold mt-4 mb-2' : depth === 2 ? 'text-sm font-semibold mt-3 mb-2' : 'text-xs font-semibold mt-2 mb-1.5';
+              return (
+                <div key={lineIdx} className={sizeClass} style={{ color: 'var(--foreground)' }}>
+                  {parseInline(title)}
+                </div>
+              );
+            }
+
+            if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
+              const listContent = trimmed.replace(/^[*+-]\s*/, '');
+              return (
+                <ul key={lineIdx} className="list-disc pl-4 space-y-1 my-1">
+                  <li className="leading-relaxed">{parseInline(listContent)}</li>
+                </ul>
+              );
+            }
+
+            return (
+              <p key={lineIdx} className="leading-relaxed">
+                {parseInline(line)}
+              </p>
+            );
+          })}
+        </div>
+      );
+    }
+  });
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
+
 
 export default function BenchmarkDashboard() {
   // Config state
@@ -167,16 +263,7 @@ export default function BenchmarkDashboard() {
   const [promptDifficulty, setPromptDifficulty] = useState('Medium');
   const [priorityGoal, setPriorityGoal] = useState('Balanced');
 
-  // AI Recommendation States
-  const [recommendGoal, setRecommendGoal] = useState('Balanced Performance');
-  const [recommendation, setRecommendation] = useState({
-    model: 'Gemini 2.5 Pro',
-    score: 95.4,
-    confidence: 97,
-    reason: 'Excellent balance of speed, accuracy and reliability. Top performer in coding and reasoning tasks.',
-    strengths: ['High Accuracy', 'Fast Response', 'Stable'],
-    weaknesses: ['Higher Cost']
-  });
+  // Removed unused AI Recommendation states
 
   // Live Queue & Run logs states
   const [liveQueue, setLiveQueue] = useState([]);
@@ -190,19 +277,15 @@ export default function BenchmarkDashboard() {
   // Results & History state
   const [runResults, setRunResults] = useState([]);
   const [runOutputs, setRunOutputs] = useState({});
-  const [history, setHistory] = useState([
-    { created_at: '2025-05-27T20:24:00Z', model: 'gemini-2.5-pro', task: 'Coding', iterations: 3, score: 95.4, latency_ms: 1210, speed_tps: 85.4, success: true, response_text: 'function reverseList(head) {\n  let prev = null;\n  let current = head;\n  while (current) {\n    let next = current.next;\n    current.next = prev;\n    prev = current;\n    current = next;\n  }\n  return prev;\n}' },
-    { created_at: '2025-05-27T20:20:00Z', model: 'gpt-4.1', task: 'Coding', iterations: 3, score: 93.1, latency_ms: 1540, speed_tps: 72.1, success: true, response_text: 'const reverseLinkedList = (head) => {\n  let prev = null, curr = head;\n  while (curr) {\n    const next = curr.next;\n    curr.next = prev;\n    prev = curr;\n    curr = next;\n  }\n  return prev;\n};' },
-    { created_at: '2025-05-27T20:15:00Z', model: 'claude-3.5-sonnet', task: 'Reasoning', iterations: 3, score: 90.3, latency_ms: 1630, speed_tps: 68.2, success: true, response_text: 'There are 24 chickens and 11 rabbits. Proof: Let C = chickens, R = rabbits. C + R = 35 => C = 35 - R. 2C + 4R = 94 => 70 + 2R = 94 => 2R = 24 => R = 12.' },
-    { created_at: '2025-05-27T20:10:00Z', model: 'llama-3.3-70b', task: 'Math', iterations: 3, score: 85.6, latency_ms: 1820, speed_tps: 61.5, success: true, response_text: 'To find 15% of 200:\n1. 10% of 200 = 20.\n2. 5% of 200 = 10.\n3. 15% = 20 + 10 = 30.' },
-  ]);
-  const [historyProviderFilter, setHistoryProviderFilter] = useState('All');
+  const [history, setHistory] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [historyModelFilter, setHistoryModelFilter] = useState('All');
-  const [historyPromptFilter, setHistoryPromptFilter] = useState('All');
+  const [historyDateFilter, setHistoryDateFilter] = useState('');
+  const [isHistoryFilterOpen, setIsHistoryFilterOpen] = useState(false);
 
   // Comparison State
-  const [compareModelA, setCompareModelA] = useState('gemini-2.5-pro');
-  const [compareModelB, setCompareModelB] = useState('gpt-4.1');
+  const [compareModelA, setCompareModelA] = useState('');
+  const [compareModelB, setCompareModelB] = useState('');
 
   // Analytics Chart Active Tab
   const [activeChartTab, setActiveChartTab] = useState('radar');
@@ -272,7 +355,7 @@ export default function BenchmarkDashboard() {
       document.getElementById('leaderboard-section')?.scrollIntoView({ behavior: 'smooth' });
     } else if (navName === 'Compare Models') {
       document.getElementById('compare-section')?.scrollIntoView({ behavior: 'smooth' });
-    } else if (navName === 'History' || navName === 'Prompt Library') {
+    } else if (navName === 'History') {
       document.getElementById('history-section')?.scrollIntoView({ behavior: 'smooth' });
     } else if (navName === 'Analytics') {
       document.getElementById('analytics-section')?.scrollIntoView({ behavior: 'smooth' });
@@ -433,49 +516,21 @@ export default function BenchmarkDashboard() {
   }
 
   async function loadHistory() {
+    setIsLoading(true);
     try {
       const res = await fetch('/api/history');
       const { results = [] } = await res.json();
-      if (results.length) setHistory(results);
-    } catch (e) { }
-  }
-
-  function handleGenerateRecommendation() {
-    if (recommendGoal === 'Fastest Response') {
-      setRecommendation({
-        model: 'groq/llama-3.1-8b-instant',
-        score: 96.8,
-        confidence: 99,
-        reason: 'Ultra-low latency inference powered by Groq LPU engine. Delivers lightning-fast TTFT under 200ms.',
-        strengths: ['Ultra Fast', 'Low Latency', 'High Throughput'],
-        weaknesses: ['Smaller Context']
-      });
-    } else if (recommendGoal === 'Best Coding') {
-      setRecommendation({
-        model: 'Gemini 2.5 Pro',
-        score: 98.1,
-        confidence: 96,
-        reason: 'Exceptional code generation, logic reasoning, and algorithm optimization performance in benchmark suites.',
-        strengths: ['High Precision', 'Complex Coding', 'Deep Context'],
-        weaknesses: ['Higher Cost']
-      });
-    } else {
-      setRecommendation({
-        model: 'Gemini 2.5 Pro',
-        score: 95.4,
-        confidence: 97,
-        reason: 'Excellent balance of speed, accuracy and reliability across coding, math, and reasoning workloads.',
-        strengths: ['High Accuracy', 'Fast Response', 'Stable'],
-        weaknesses: ['Higher Cost']
-      });
+      setHistory(results);
+    } catch (e) { 
+    } finally {
+      setIsLoading(false);
     }
-    showToast(`Goal updated: Recommended ${recommendation.model}`);
   }
 
   const downloadCSVReport = () => {
     const csvRows = ['Date & Time,Model,Task,TTFT (ms),Latency (ms),Tokens/s,Status'];
     history.forEach(row => {
-      csvRows.push(`"${new Date(row.created_at || Date.now()).toLocaleString()}","${row.model}","${row.task}",${row.ttft_ms || 320},${row.latency_ms || 1210},${row.speed_tps || 85.4},${row.success !== false ? 'Completed' : 'Failed'}`);
+      csvRows.push(`"${new Date(row.created_at || Date.now()).toLocaleString()}","${row.model}","${row.task}",${row.ttft_ms || 0},${row.latency_ms || 0},${row.speed_tps || 0},${row.success !== false ? 'Completed' : 'Failed'}`);
     });
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -486,61 +541,203 @@ export default function BenchmarkDashboard() {
     showToast('CSV History report downloaded!');
   };
 
-  const leaderboardData = [
-    { rank: 1, model: 'Llama 3.2 1B (Free)', score: 96.8, latency: '0.85s', ttft: '120ms', tps: 140.2, accuracy: '91.2%', badge: '🥇' },
-    { rank: 2, model: 'Gemini 2.5 Pro', score: 95.4, latency: '1.21s', ttft: '340ms', tps: 85.4, accuracy: '96.8%', badge: '🥈' },
-    { rank: 3, model: 'GPT-4.1', score: 93.1, latency: '1.54s', ttft: '450ms', tps: 72.1, accuracy: '95.1%', badge: '🥉' },
-    { rank: 4, model: 'DeepSeek R1 (Free)', score: 88.7, latency: '1.35s', ttft: '250ms', tps: 91.5, accuracy: '92.1%', badge: '4' },
-    { rank: 5, model: 'Llama 3.3 70B', score: 85.6, latency: '1.82s', ttft: '310ms', tps: 61.5, accuracy: '89.3%', badge: '5' },
-  ];
+  const dashboardStats = useMemo(() => {
+    const uniqueSessions = new Set();
+    const uniqueModels = new Set();
+    let totalLatency = 0;
+    let successfulRuns = 0;
+    let todayRunsCount = 0;
 
-  const radarChartData = [
-    { subject: 'Accuracy', A: 96, B: 93, C: 88, fullMark: 100 },
-    { subject: 'Reasoning', A: 98, B: 95, C: 90, fullMark: 100 },
-    { subject: 'Coding', A: 95, B: 91, C: 85, fullMark: 100 },
-    { subject: 'Speed', A: 85, B: 90, C: 94, fullMark: 100 },
-    { subject: 'Cost Efficiency', A: 60, B: 75, C: 99, fullMark: 100 },
-    { subject: 'Reliability', A: 99, B: 97, C: 92, fullMark: 100 },
-  ];
+    const todayStr = new Date().toISOString().split('T')[0];
 
-  const barChartData = [
-    { name: 'Gemini 2.5 Pro', TPS: 85.4, Latency: 1.21, Cost: 0.007 },
-    { name: 'GPT-4.1', TPS: 72.1, Latency: 1.54, Cost: 0.015 },
-    { name: 'Llama 3.2 1B (Free)', TPS: 140.2, Latency: 0.85, Cost: 0 },
-    { name: 'DeepSeek R1 (Free)', TPS: 91.5, Latency: 1.35, Cost: 0 },
-    { name: 'Llama 3.3 70B', TPS: 61.5, Latency: 1.82, Cost: 0.002 },
-  ];
+    history.forEach(run => {
+      if (run.session_id) uniqueSessions.add(run.session_id);
+      if (run.model) uniqueModels.add(run.model);
+      if (run.success) {
+        totalLatency += (run.latency_ms || 0);
+        successfulRuns++;
+      }
+      if (run.created_at && run.created_at.startsWith(todayStr)) {
+        todayRunsCount++;
+      }
+    });
+
+    return {
+      totalSessions: uniqueSessions.size,
+      todayRuns: todayRunsCount,
+      modelsAvailable: uniqueModels.size,
+      avgLatency: successfulRuns > 0 ? (totalLatency / successfulRuns / 1000).toFixed(2) + 's' : '0s',
+      totalRuns: history.length
+    };
+  }, [history]);
+
+  const { leaderboardData, bestModel } = useMemo(() => {
+    if (!history.length) return { leaderboardData: [], bestModel: null };
+
+    const modelStats = {};
+    history.forEach(run => {
+      if (!modelStats[run.model]) {
+        modelStats[run.model] = { name: run.model, runs: 0, successes: 0, totalSpeed: 0, totalLatency: 0, totalTtft: 0, totalCost: 0, peakSpeed: 0, minLatency: 9999999 };
+      }
+      modelStats[run.model].runs++;
+      if (run.success) {
+        modelStats[run.model].successes++;
+        modelStats[run.model].totalSpeed += (run.speed_tps || 0);
+        modelStats[run.model].totalLatency += (run.latency_ms || 0);
+        modelStats[run.model].totalTtft += (run.ttft_ms || 0);
+        modelStats[run.model].totalCost += (run.cost || 0);
+        
+        if ((run.speed_tps || 0) > modelStats[run.model].peakSpeed) {
+          modelStats[run.model].peakSpeed = run.speed_tps;
+        }
+        if ((run.latency_ms || 9999999) < modelStats[run.model].minLatency) {
+          modelStats[run.model].minLatency = run.latency_ms;
+        }
+      }
+    });
+
+    let maxSpeed = 1;
+    let minLatency = 9999999;
+    
+    const aggregated = Object.values(modelStats).map(stat => {
+      const successRuns = stat.successes || 1; // prevent div by zero
+      const avgSpeed = stat.totalSpeed / successRuns;
+      const avgLatency = stat.totalLatency / successRuns;
+      
+      if (avgSpeed > maxSpeed) maxSpeed = avgSpeed;
+      if (avgLatency > 0 && avgLatency < minLatency) minLatency = avgLatency;
+      
+      return {
+        model: stat.name,
+        accuracy: ((stat.successes / stat.runs) * 100).toFixed(1) + '%',
+        successRate: stat.successes / stat.runs,
+        tps: parseFloat(avgSpeed.toFixed(1)),
+        latency: (avgLatency / 1000).toFixed(2) + 's',
+        latencyMs: avgLatency,
+        ttft: (stat.totalTtft / successRuns).toFixed(0) + 'ms',
+        cost: stat.totalCost / successRuns,
+        runs: stat.runs,
+        successes: stat.successes,
+        peakSpeed: parseFloat((stat.peakSpeed || 0).toFixed(1)),
+        minLatency: stat.minLatency !== 9999999 ? (stat.minLatency / 1000).toFixed(2) + 's' : 'N/A',
+        minLatencyMs: stat.minLatency !== 9999999 ? stat.minLatency : 0
+      };
+    });
+
+    const scored = aggregated.map(stat => {
+      const normSpeed = Math.min((stat.tps / maxSpeed) * 100, 100);
+      const normLatency = Math.min((minLatency / (stat.latencyMs || 1)) * 100, 100);
+      const score = (stat.successRate * 50) + (normSpeed * 0.3) + (normLatency * 0.2);
+      return { ...stat, score: parseFloat(score.toFixed(1)) };
+    }).sort((a, b) => b.score - a.score);
+
+    const badges = ['🥇', '🥈', '🥉', '4', '5'];
+    scored.forEach((s, idx) => {
+      s.rank = idx + 1;
+      s.badge = badges[idx] || (idx + 1).toString();
+    });
+
+    return { leaderboardData: scored, bestModel: scored[0] };
+  }, [history]);
+
+  const barChartData = useMemo(() => {
+    return leaderboardData.slice(0, 5).map(l => ({
+      name: l.model,
+      TPS: l.tps,
+      Latency: parseFloat(l.latency.replace('s','')),
+      Cost: l.cost || 0
+    }));
+  }, [leaderboardData]);
+
+  const radarChartData = useMemo(() => {
+    if (leaderboardData.length === 0) return [];
+    const A = leaderboardData[0] || {};
+    const B = leaderboardData[1] || {};
+    const C = leaderboardData[2] || {};
+    
+    const maxTPS = Math.max(A.tps || 1, B.tps || 1, C.tps || 1);
+    
+    return [
+      { subject: 'Reliability', A: parseFloat(A.accuracy || 0), B: parseFloat(B.accuracy || 0), C: parseFloat(C.accuracy || 0), fullMark: 100 },
+      { subject: 'Speed (TPS)', A: ((A.tps||0)/maxTPS)*100, B: ((B.tps||0)/maxTPS)*100, C: ((C.tps||0)/maxTPS)*100, fullMark: 100 },
+      { subject: 'Latency', A: A.latencyMs ? (1000/A.latencyMs)*100 : 0, B: B.latencyMs ? (1000/B.latencyMs)*100 : 0, C: C.latencyMs ? (1000/C.latencyMs)*100 : 0, fullMark: 100 },
+      { subject: 'Overall Score', A: A.score || 0, B: B.score || 0, C: C.score || 0, fullMark: 100 },
+    ];
+  }, [leaderboardData]);
+
+  const uniqueModels = useMemo(() => {
+    const models = history.map(h => h.model);
+    return ['All', ...Array.from(new Set(models))];
+  }, [history]);
 
   // Filtered History
   const filteredHistory = history.filter(row => {
-    const matchesProvider = historyProviderFilter === 'All' || getGroupForModel(row.model) === historyProviderFilter;
-    const matchesModel = historyModelFilter === 'All' || row.model.toLowerCase().includes(historyModelFilter.toLowerCase());
-    const matchesPrompt = historyPromptFilter === 'All' || row.task.toLowerCase().includes(historyPromptFilter.toLowerCase());
-    return matchesProvider && matchesModel && matchesPrompt;
+    const matchesModel = historyModelFilter === 'All' || row.model === historyModelFilter;
+    const matchesDate = !historyDateFilter || (row.created_at && new Date(row.created_at).toISOString().split('T')[0] === historyDateFilter);
+    return matchesModel && matchesDate;
   });
 
+  // Sync comparison selections with loaded leaderboardData models
+  useEffect(() => {
+    if (isMounted && leaderboardData.length > 0) {
+      const modelAExists = leaderboardData.some(l => l.model === compareModelA);
+      const modelBExists = leaderboardData.some(l => l.model === compareModelB);
+      
+      let nextA = compareModelA;
+      let nextB = compareModelB;
+
+      if (!modelAExists) {
+        nextA = leaderboardData[0].model;
+      }
+      if (!modelBExists) {
+        nextB = leaderboardData.length > 1 ? leaderboardData[1].model : leaderboardData[0].model;
+      }
+
+      // If they are equal but there are multiple models, make B distinct
+      if (nextA === nextB && leaderboardData.length > 1) {
+        const fallback = leaderboardData.find(l => l.model !== nextA);
+        if (fallback) {
+          nextB = fallback.model;
+        }
+      }
+
+      if (nextA !== compareModelA) setCompareModelA(nextA);
+      if (nextB !== compareModelB) setCompareModelB(nextB);
+    }
+  }, [leaderboardData, compareModelA, compareModelB, isMounted]);
+
+  const modelAData = leaderboardData.find(l => l.model === compareModelA) || null;
+  const modelBData = leaderboardData.find(l => l.model === compareModelB) || null;
+
   return (
-    <div className="flex flex-col md:flex-row min-h-screen bg-[#f3f4f8] text-slate-900 relative">
+    <div className="flex flex-col md:flex-row min-h-screen relative" style={{ background: 'var(--background)', color: 'var(--foreground)' }}>
 
       {/* ─── Mobile Header Topbar (< md) ────────────────────────── */}
-      <header className="md:hidden sticky top-0 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between z-40 shadow-xs">
-        <div className="flex items-center gap-2.5">
-          <span className="text-xl text-purple-600">⚡</span>
-          <span className="font-extrabold text-sm tracking-tight text-slate-900">
-            AI Benchmark <span className="text-purple-600 text-xs font-semibold">Analyzer</span>
+      <header className="md:hidden sticky top-0 backdrop-blur-md px-4 py-3 flex items-center justify-between z-40 shadow-xs" style={{ background: 'var(--sidebar)', borderBottom: '1px solid var(--sidebar-border)' }}>
+        <div className="flex items-center gap-3">
+          <span className="flex w-8 h-8 items-center justify-center rounded-xl text-white" style={{ backgroundImage: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)' }}>
+            <Zap className="w-3.5 h-3.5" />
+          </span>
+          <span className="leading-tight">
+            <span className="block text-xs font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>AI Benchmark</span>
+            <span className="num block text-[8px] uppercase tracking-[0.22em]" style={{ color: 'var(--muted-foreground)' }}>Analyzer</span>
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 flex items-center gap-1 text-[10px] text-emerald-700 font-bold">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+          <div className="rounded-full px-2 py-0.5 flex items-center gap-1 text-[10px] font-bold" style={{ background: 'oklch(0.75 0.17 155 / 15%)', color: 'var(--success)', border: '1px solid oklch(0.75 0.17 155 / 20%)' }}>
+            <span className="relative flex w-1.5 h-1.5">
+              <span className="absolute inset-0 animate-ping rounded-full" style={{ background: 'oklch(0.75 0.17 155 / 70%)' }} />
+              <span className="relative w-1.5 h-1.5 rounded-full" style={{ background: 'var(--success)' }} />
+            </span>
             Live
           </div>
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-label="Toggle navigation menu"
-            className="p-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
+            className="p-2 rounded-xl transition"
+            style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}
           >
-            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            {isMobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
           </button>
         </div>
       </header>
@@ -549,18 +746,21 @@ export default function BenchmarkDashboard() {
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden animate-fade-in">
           <div
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs"
             onClick={() => setIsMobileMenuOpen(false)}
           />
-          <aside className="fixed inset-y-0 left-0 w-72 max-w-[80vw] bg-white shadow-2xl flex flex-col z-50 animate-drawer-in">
-            <div className="flex items-center justify-between p-4 border-b border-slate-200">
-              <div className="flex items-center gap-2.5">
-                <span className="text-2xl text-purple-600">⚡</span>
-                <span className="font-extrabold text-base tracking-tight text-slate-900">
-                  AI Benchmark <span className="text-xs text-purple-600 block font-semibold">Analyzer</span>
+          <aside className="fixed inset-y-0 left-0 w-72 max-w-[80vw] flex flex-col z-50 animate-drawer-in" style={{ background: 'var(--sidebar)', borderRight: '1px solid var(--sidebar-border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--sidebar-border)' }}>
+              <div className="flex items-center gap-3">
+                <span className="flex w-9 h-9 items-center justify-center rounded-xl text-white" style={{ backgroundImage: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)' }}>
+                  <Zap className="w-4 h-4" />
+                </span>
+                <span className="leading-tight">
+                  <span className="block text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>AI Benchmark</span>
+                  <span className="num block text-[10px] uppercase tracking-[0.22em]" style={{ color: 'var(--muted-foreground)' }}>Analyzer</span>
                 </span>
               </div>
-              <button onClick={() => setIsMobileMenuOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition">
+              <button onClick={() => setIsMobileMenuOpen(false)} className="p-1.5 rounded-lg transition" style={{ color: 'var(--muted-foreground)' }}>
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -573,46 +773,53 @@ export default function BenchmarkDashboard() {
                   <button
                     key={item.name}
                     onClick={() => handleNavClick(item.name)}
-                    className={`flex items-center w-full px-3 py-3 rounded-xl transition text-xs font-semibold ${isActive
-                      ? 'bg-purple-50 text-purple-700 border-l-4 border-purple-600 shadow-sm font-bold'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    className={`group flex items-center w-full gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ${isActive
+                      ? 'shadow-[inset_0_1px_0_0_oklch(1_0_0/8%)]'
+                      : ''
                       }`}
+                    style={isActive ? { background: 'var(--sidebar-accent)', color: 'var(--sidebar-accent-foreground)' } : { color: 'var(--muted-foreground)' }}
                   >
-                    <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-purple-600' : 'text-slate-400'}`} />
-                    <span className="ml-3 truncate">{item.name}</span>
+                    <Icon className="w-4 h-4 flex-shrink-0" style={{ color: isActive ? 'var(--primary-glow)' : 'var(--muted-foreground)' }} />
+                    <span className="truncate">{item.name}</span>
+                    {isActive && <span className="ml-auto h-4 w-[2px] rounded-full" style={{ background: 'var(--primary-glow)' }} />}
                   </button>
                 );
               })}
             </nav>
 
-            <div className="p-4 border-t border-slate-200 space-y-2">
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 flex items-center gap-2 text-xs text-emerald-700 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-                <span>All Systems Operational</span>
+            <div className="m-3 rounded-xl px-4 py-3" style={{ border: '1px solid var(--sidebar-border)', background: 'oklch(0.26 0.028 275 / 60%)' }}>
+              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                <span className="relative flex w-2 h-2">
+                  <span className="absolute inset-0 animate-ping rounded-full" style={{ background: 'oklch(0.75 0.17 155 / 70%)' }} />
+                  <span className="relative w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
+                </span>
+                All systems operational
               </div>
-              <div className="text-[10px] text-slate-400 font-mono">v2.0.0</div>
             </div>
           </aside>
         </div>
       )}
 
       {/* ─── Collapsible Left Sidebar (Desktop md+) ──────────── */}
-      <aside className={`hidden md:flex flex-col h-screen sticky top-0 bg-white border-r border-slate-200 transition-all duration-300 z-30 ${isSidebarCollapsed ? 'w-20' : 'w-64'}`}>
-        <div className="flex items-center justify-between p-4 border-b border-slate-200">
+      <aside className={`hidden md:flex flex-col h-screen sticky top-0 transition-all duration-300 z-30 ${isSidebarCollapsed ? 'w-20' : 'w-[248px]'}`} style={{ background: 'var(--sidebar)', borderRight: '1px solid var(--sidebar-border)' }}>
+        <div className={`flex items-center justify-between px-5 py-6 ${isSidebarCollapsed ? 'flex-col gap-4' : ''}`} style={{ borderBottom: '1px solid var(--sidebar-border)' }}>
           <div className="flex items-center gap-3 overflow-hidden">
-            <span className="text-2xl text-purple-600">⚡</span>
+            <span className="flex w-9 h-9 shrink-0 items-center justify-center rounded-xl text-white" style={{ backgroundImage: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)' }}>
+              <Zap className="w-4 h-4" />
+            </span>
             {!isSidebarCollapsed && (
-              <span className="font-extrabold text-base tracking-tight text-slate-900 truncate">
-                AI Benchmark <span className="text-xs text-purple-600 block font-semibold">Analyzer</span>
+              <span className="leading-tight">
+                <span className="block text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>AI Benchmark</span>
+                <span className="num block text-[10px] uppercase tracking-[0.22em]" style={{ color: 'var(--muted-foreground)' }}>Analyzer</span>
               </span>
             )}
           </div>
-          <button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition">
-            <Menu className="w-5 h-5" />
+          <button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="p-1.5 rounded-lg transition cursor-pointer" style={{ color: 'var(--muted-foreground)' }}>
+            {isSidebarCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
           </button>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 flex flex-col gap-1 px-3 py-4 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = activeNav === item.name;
@@ -620,38 +827,47 @@ export default function BenchmarkDashboard() {
               <button
                 key={item.name}
                 onClick={() => handleNavClick(item.name)}
-                className={`flex items-center w-full px-3 py-2.5 rounded-xl transition text-xs font-semibold ${isActive
-                  ? 'bg-purple-50 text-purple-700 border-l-4 border-purple-600 shadow-sm font-bold'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ${isActive
+                  ? 'shadow-[inset_0_1px_0_0_oklch(1_0_0/8%)]'
+                  : ''
                   }`}
+                style={isActive ? { background: 'var(--sidebar-accent)', color: 'var(--sidebar-accent-foreground)' } : { color: 'var(--muted-foreground)' }}
               >
-                <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-purple-600' : 'text-slate-400'}`} />
-                {!isSidebarCollapsed && <span className="ml-3 truncate">{item.name}</span>}
+                <Icon className="w-4 h-4 flex-shrink-0 transition-colors" style={{ color: isActive ? 'var(--primary-glow)' : 'var(--muted-foreground)' }} />
+                {!isSidebarCollapsed && <span className="truncate">{item.name}</span>}
+                {isActive && !isSidebarCollapsed && <span className="ml-auto h-4 w-[2px] rounded-full" style={{ background: 'var(--primary-glow)' }} />}
               </button>
             );
           })}
         </nav>
 
-        <div className="p-4 border-t border-slate-200 space-y-3">
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 flex items-center gap-2 text-xs text-emerald-700 font-semibold">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-            {!isSidebarCollapsed && <span className="truncate">All Systems Operational</span>}
+        {!isSidebarCollapsed && (
+          <div className="m-3 rounded-xl px-4 py-3" style={{ border: '1px solid var(--sidebar-border)', background: 'oklch(0.26 0.028 275 / 60%)' }}>
+            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+              <span className="relative flex w-2 h-2">
+                <span className="absolute inset-0 animate-ping rounded-full" style={{ background: 'oklch(0.75 0.17 155 / 70%)' }} />
+                <span className="relative w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
+              </span>
+              All systems operational
+            </div>
           </div>
-          <div className="text-[10px] text-slate-400 font-mono">v2.0.0</div>
-        </div>
+        )}
       </aside>
 
       {/* ─── Main Workspace ───────────────────────── */}
       <div className="flex-1 flex flex-col min-h-screen overflow-x-hidden w-full">
 
         {/* Main Body */}
-        <main className="flex-1 p-4 sm:p-6 space-y-5 sm:space-y-6 max-w-7xl mx-auto w-full">
+        <main className="grid-lines relative min-w-0 flex-1">
+          {/* Halo gradient overlay at top */}
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-72" style={{ backgroundImage: 'var(--gradient-halo)', opacity: 0.5 }} />
+          <div className="relative mx-auto max-w-[1500px] px-5 py-7 lg:px-8 space-y-4">
 
           {/* Toast Notification Container */}
           <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:w-auto z-50 flex flex-col gap-2 pointer-events-none">
             {toasts.map(t => (
-              <div key={t.id} className="pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl bg-white border border-slate-200 text-xs font-semibold text-slate-800 animate-slide-in">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+              <div key={t.id} className="pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold animate-slide-in" style={{ background: 'var(--elevated)', border: '1px solid var(--border)', color: 'var(--foreground)' }}>
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--success)' }} />
                 <span className="truncate">{t.message}</span>
               </div>
             ))}
@@ -661,265 +877,443 @@ export default function BenchmarkDashboard() {
 
           {/* Inspected History Row Modal */}
           {inspectedRow && (
-            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in">
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6 space-y-4 mx-4">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                  <h3 className="font-bold text-base text-slate-900">
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+              <div className="panel max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6 space-y-4 mx-4">
+                <div className="flex items-center justify-between pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
+                  <h3 className="font-bold text-base" style={{ fontFamily: 'var(--font-display)', color: 'var(--foreground)' }}>
                     Run Inspection: {inspectedRow.model}
                   </h3>
-                  <button onClick={() => setInspectedRow(null)} className="p-1 rounded-lg text-slate-400 hover:text-slate-700">
+                  <button onClick={() => setInspectedRow(null)} className="p-1 rounded-lg transition" style={{ color: 'var(--muted-foreground)' }}>
                     <X className="w-5 h-5" />
                   </button>
                 </div>
 
-                <div className="space-y-2 text-xs text-slate-700">
-                  <div className="flex justify-between bg-slate-50 p-2 rounded-lg">
-                    <span>Task Category: <strong>{inspectedRow.task}</strong></span>
-                    <span>Latency: <strong>{(inspectedRow.latency_ms / 1000).toFixed(2)}s</strong></span>
+                <div className="space-y-2 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  <div className="flex justify-between p-2 rounded-lg" style={{ background: 'var(--secondary)' }}>
+                    <span>Task Category: <strong style={{ color: 'var(--foreground)' }}>{inspectedRow.task}</strong></span>
+                    <span>Latency: <strong style={{ color: 'var(--foreground)' }}>{(inspectedRow.latency_ms / 1000).toFixed(2)}s</strong></span>
                   </div>
                   <div>
-                    <span className="font-bold block mb-1">Generated Output:</span>
-                    <pre className="bg-slate-900 text-slate-100 p-3 rounded-xl overflow-x-auto text-[11px] font-mono whitespace-pre-wrap max-h-60">
-                      {inspectedRow.response_text || 'Output response generated successfully.'}
-                    </pre>
+                    <span className="font-bold block mb-1" style={{ color: 'var(--foreground)' }}>Generated Output:</span>
+                    <div className="max-h-80 overflow-y-auto p-4 rounded-xl text-xs font-normal space-y-1" style={{ background: 'oklch(0.20 0.015 275 / 50%)', border: '1px solid var(--border)' }}>
+                      {inspectedRow.response_text ? renderMarkdown(inspectedRow.response_text) : 'Output response generated successfully.'}
+                    </div>
                   </div>
                 </div>
 
                 <div className="pt-2 text-right">
-                  <button onClick={() => setInspectedRow(null)} className="px-4 py-2 bg-purple-600 text-white font-bold text-xs rounded-xl">Close</button>
+                  <button onClick={() => setInspectedRow(null)} className="px-4 py-2 text-white font-bold text-xs rounded-xl" style={{ backgroundImage: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)' }}>Close</button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* 1. Hero Section */}
-          <section className="relative overflow-hidden rounded-3xl hero-banner-gradient p-5 sm:p-6 text-white shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-5 sm:gap-6">
-            <div className="space-y-2">
-              <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight flex items-center gap-2">
-                AI Benchmark Analyzer 👋
-              </h2>
-              <p className="text-white/80 text-xs max-w-md leading-relaxed">
-                Monitor, compare and analyze the performance of top AI models in real-time.
+          {/* 1. Page Header */}
+          <header className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ fontFamily: 'var(--font-display)' }}>
+                Dashboard <span className="gradient-text">Overview</span>
+              </h1>
+              <p className="mt-1.5 text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                Monitor, compare, and analyze AI models in real time.
               </p>
-              <div className="pt-1">
-                <a
-                  href="/playground"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-purple-700 font-extrabold text-xs shadow-lg hover:bg-purple-50 transition transform hover:-translate-y-0.5"
-                >
-                  <span>⚡</span> Launch AI Playground →
-                </a>
-              </div>
             </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 bg-white/15 backdrop-blur-md p-3 sm:p-3.5 rounded-2xl border border-white/25 w-full md:w-auto">
-              <div>
-                <span className="text-[9px] text-white/70 font-bold uppercase tracking-wider block">Total Sessions</span>
-                <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">128</span>
-              </div>
-              <div>
-                <span className="text-[9px] text-white/70 font-bold uppercase tracking-wider block">Today's Runs</span>
-                <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">24</span>
-              </div>
-              <div>
-                <span className="text-[9px] text-white/70 font-bold uppercase tracking-wider block">Models Available</span>
-                <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">36</span>
-              </div>
-              <div>
-                <span className="text-[9px] text-white/70 font-bold uppercase tracking-wider block">Avg. Latency</span>
-                <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">1.42s</span>
-              </div>
+            <div className="flex items-center gap-2">
+              <button className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs transition-colors" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}>
+                <Calendar className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
+                <span className="num">Today, {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+              </button>
+              <a
+                href="/playground"
+                className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium transition-transform hover:-translate-y-px"
+                style={{ backgroundImage: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)', color: 'var(--primary-foreground)' }}
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Playground
+              </a>
             </div>
-          </section>
+          </header>
 
           {/* 2. Four Dashboard Summary Cards */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-            {[
-              { name: 'Total Models', value: '36', change: '↑ 12% vs last week', icon: Cpu, iconBg: 'bg-purple-100 text-purple-600' },
-              { name: 'Total Benchmark Runs', value: '1,248', change: '↑ 18% vs last week', icon: Activity, iconBg: 'bg-blue-100 text-blue-600' },
-              { name: 'Best Performing Model', value: 'Gemini 2.5 Pro', sub: 'Score: 95.4 /100', icon: Trophy, iconBg: 'bg-amber-100 text-amber-600' },
-              { name: 'Average Response Time', value: '1.42s', change: '↓ 8% vs last week', icon: Clock, iconBg: 'bg-pink-100 text-pink-600' },
-            ].map((card, idx) => {
-              const Icon = card.icon;
-              return (
-                <div key={idx} className="glass-card rounded-2xl p-4 flex items-center justify-between">
-                  <div className="space-y-1">
-                    <span className="text-xs text-slate-500 font-semibold block">{card.name}</span>
-                    <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">{card.value}</h3>
-                    <span className="text-[10px] font-semibold text-emerald-600 block">{card.change || card.sub}</span>
-                  </div>
-                  <div className={`p-3 rounded-xl ${card.iconBg}`}>
-                    <Icon className="w-5 h-5" />
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {isLoading ? (
+              Array(4).fill(0).map((_, idx) => (
+                <div key={idx} className="panel overflow-hidden p-5 animate-pulse">
+                  <div className="relative flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-3">
+                      <div className="h-3 bg-zinc-800 rounded-md w-24" />
+                      <div className="h-8 bg-zinc-800 rounded-md w-36 mt-3" />
+                      <div className="h-3 bg-zinc-800 rounded-md w-20 mt-3" />
+                    </div>
+                    <div className="w-10 h-10 rounded-xl bg-zinc-800 shrink-0" />
                   </div>
                 </div>
-              );
-            })}
+              ))
+            ) : (
+              [
+                { name: 'Total Models', value: dashboardStats.modelsAvailable.toString(), change: '+3 this week', icon: Cpu, tone: 'accent' },
+                { name: 'Benchmark Runs', value: dashboardStats.totalRuns.toString(), change: '+12 today', icon: Activity, tone: 'accent' },
+                { name: 'Best Performing', value: bestModel ? bestModel.model.split('/').pop() : 'N/A', change: bestModel ? `Score ${bestModel.score} / 100` : '', icon: Trophy, tone: 'primary', small: true },
+                { name: 'Avg Response', value: dashboardStats.avgLatency, change: '-2.4s vs last run', icon: Clock, tone: 'accent' },
+              ].map((card, idx) => {
+                const Icon = card.icon;
+                return (
+                  <div key={idx} className="panel halo group overflow-hidden p-5">
+                    <div className="relative flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="num text-[10px] uppercase tracking-[0.2em]" style={{ color: 'var(--muted-foreground)' }}>
+                          {card.name}
+                        </p>
+                        <p className={`num mt-3 truncate font-semibold ${card.small ? 'text-xl' : 'text-[2rem] leading-none'} ${card.tone === 'primary' ? 'gradient-text' : ''}`}>
+                          {card.value}
+                        </p>
+                        <p className="mt-3 flex items-center gap-1.5 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                          <svg className="w-3 h-3" style={{ color: 'var(--success)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M7 17L17 7M7 7h10v10" /></svg>
+                          {card.change}
+                        </p>
+                      </div>
+                      <span
+                        className="flex w-10 h-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-105"
+                        style={{ border: '1px solid var(--border)', background: 'oklch(1 0 0 / 5%)', color: card.tone === 'primary' ? 'var(--primary-glow)' : 'var(--accent)' }}
+                      >
+                        <Icon className="w-4 h-4" />
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </section>
 
 
 
-          {/* 4. Live Benchmark Status & Leaderboard & Analytics */}
-          <section className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6">
+          {/* 4. Full Width Key Analytics & Status */}
+          <div id="live-status-section" className="panel p-5 space-y-3">
+            <div className="flex items-center gap-3">
+              <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>1</span>
+              <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>Live Benchmark Status</h2>
+            </div>
 
-            {/* Live Benchmark Status */}
-            <div id="live-status-section" className="glass-card rounded-2xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
-                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">1</span> Live Benchmark Status
-                </h3>
-              </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                { label: 'Queue', value: liveQueue.filter(q => q.status === 'queued').length, color: 'var(--muted-foreground)' },
+                { label: 'Running', value: liveQueue.filter(q => q.status === 'running').length, color: 'var(--accent)' },
+                { label: 'Completed', value: liveQueue.filter(q => q.status === 'completed').length, color: 'var(--success)' },
+                { label: 'Failed', value: liveQueue.filter(q => q.status === 'failed').length, color: 'var(--destructive)' },
+              ].map(s => (
+                <div key={s.label} className="rounded-xl px-4 py-3" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 40%)' }}>
+                  <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--muted-foreground)' }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
+                    {s.label}
+                  </div>
+                  <p className="num mt-2 text-xl font-semibold">{s.value}</p>
+                </div>
+              ))}
+            </div>
 
-              <div className="flex justify-between text-xs font-bold text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                <span>Queue: <strong className="text-slate-800">{liveQueue.filter(q => q.status === 'queued').length || 8}</strong></span>
-                <span>Running: <strong className="text-blue-600">{liveQueue.filter(q => q.status === 'running').length || 6}</strong></span>
-                <span>Completed: <strong className="text-emerald-600">{liveQueue.filter(q => q.status === 'completed').length || 42}</strong></span>
-                <span>Failed: <strong className="text-red-600">{liveQueue.filter(q => q.status === 'failed').length || 2}</strong></span>
-              </div>
-
-              <div className="space-y-2 text-xs font-semibold max-h-48 overflow-y-auto pr-1">
-                {(liveQueue.length ? liveQueue : [
-                  { model: 'Gemini 2.5 Pro - Coding', status: 'running', progress: 65 },
-                  { model: 'GPT-4.1 - Coding', status: 'running', progress: 45 },
-                  { model: 'Claude 3.5 Sonnet - Reasoning', status: 'running', progress: 30 },
-                  { model: 'Llama 3.3 70B - Math', status: 'queued', progress: 0 },
-                ]).map((item, i) => (
+            {liveQueue.length === 0 ? (
+              <p className="rounded-xl py-5 text-center text-xs" style={{ border: '1px dashed var(--border)', color: 'var(--muted-foreground)' }}>
+                No active benchmark runs in queue.
+              </p>
+            ) : (
+              <div className="space-y-2 text-xs font-semibold max-h-32 overflow-y-auto pr-1">
+                {liveQueue.map((item, i) => (
                   <div key={i} className="space-y-1">
                     <div className="flex justify-between text-[11px]">
-                      <span className="text-slate-800 font-bold truncate max-w-[170px]">{item.model.split('/').pop()}</span>
-                      <span className="text-slate-500 capitalize">{item.status} {item.progress || 0}%</span>
+                      <span style={{ color: 'var(--foreground)' }}>{item.model.split('/').pop()}</span>
+                      <span className="capitalize" style={{ color: 'var(--muted-foreground)' }}>{item.status} {item.progress || 0}%</span>
                     </div>
-                    <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                      <div className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-300" style={{ width: `${item.progress || 0}%` }}></div>
+                    <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--secondary)' }}>
+                      <div className="h-full rounded-full transition-all duration-300" style={{ width: `${item.progress || 0}%`, backgroundImage: 'var(--gradient-primary)' }}></div>
                     </div>
                   </div>
                 ))}
               </div>
+            )}
+          </div>
 
-              <div className="text-center pt-2">
-                <button onClick={() => document.getElementById('history-section')?.scrollIntoView({ behavior: 'smooth' })} className="text-xs text-blue-600 font-bold hover:underline">View All Runs →</button>
+          <div id="analytics-section" className="panel p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>2</span>
+                <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
+                  Key Analytics <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Normalized across 5 dimensions</span>
+                </h2>
+              </div>
+              <div className="flex gap-1 rounded-xl p-1" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)' }}>
+                {['Radar', 'Latency', 'Tokens/Sec', 'Cost'].map(tab => {
+                  const tabId = tab === 'Tokens/Sec' ? 'tokens' : tab.toLowerCase();
+                  return (
+                    <button 
+                      key={tab}
+                      className="num rounded-lg px-3 py-1.5 text-[11px] uppercase tracking-wider transition-all"
+                      style={activeChartTab === tabId ? { background: 'var(--elevated)', color: 'var(--foreground)', boxShadow: '0 1px 0 0 oklch(1 0 0/10%) inset' } : { color: 'var(--muted-foreground)' }}
+                      onClick={() => setActiveChartTab(tabId)}
+                    >
+                      {tab}
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
-            {/* Live Leaderboard */}
-            <div id="leaderboard-section" className="glass-card rounded-2xl p-4 sm:p-5 space-y-3">
-              <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
-                <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">2</span> Live Leaderboard <span className="text-xs text-slate-400 font-normal">(Overall Score)</span>
-              </h3>
-
-              <div className="overflow-x-auto -mx-1 px-1">
-                <table className="w-full min-w-[480px] text-left border-collapse text-xs font-semibold">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-[10px] text-slate-400 uppercase">
-                      <th className="py-1.5 px-2">Rank</th>
-                      <th className="py-1.5 px-2">Model</th>
-                      <th className="py-1.5 px-2">Score</th>
-                      <th className="py-1.5 px-2">TTFT</th>
-                      <th className="py-1.5 px-2">Latency</th>
-                      <th className="py-1.5 px-2">TPS</th>
-                      <th className="py-1.5 px-2">Accuracy</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {leaderboardData.map((row, idx) => (
-                      <tr key={idx} className={`border-b border-slate-100 ${idx === 0 ? 'gold-rank-row font-extrabold text-slate-900' : ''}`}>
-                        <td className="py-2 px-2">{row.badge}</td>
-                        <td className="py-2 px-2 font-mono text-[11px]">{row.model}</td>
-                        <td className="py-2 px-2 font-bold text-purple-700">{row.score}</td>
-                        <td className="py-2 px-2 font-mono text-slate-500">{row.ttft}</td>
-                        <td className="py-2 px-2 font-mono text-slate-600">{row.latency}</td>
-                        <td className="py-2 px-2 font-mono text-blue-600">{row.tps}</td>
-                        <td className="py-2 px-2 text-emerald-600 font-mono">{row.accuracy}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="text-center pt-1">
-                <button onClick={() => document.getElementById('history-section')?.scrollIntoView({ behavior: 'smooth' })} className="text-xs text-blue-600 font-bold hover:underline">View Full Leaderboard →</button>
-              </div>
-            </div>
-
-            {/* Key Analytics */}
-            <div id="analytics-section" className="glass-card rounded-2xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
-                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">3</span> Key Analytics
-                </h3>
-              </div>
-
-              <div className="flex border border-slate-200 rounded-lg p-0.5 gap-1 bg-slate-50 text-[10px] font-bold">
-                {[
-                  { id: 'radar', name: 'Radar Chart' },
-                  { id: 'latency', name: 'Latency' },
-                  { id: 'tokens', name: 'Tokens/Sec' },
-                  { id: 'cost', name: 'Cost' },
-                  { id: 'costVsSpeed', name: 'Cost vs Speed' },
-                ].map(tab => (
-                  <button key={tab.id} onClick={() => setActiveChartTab(tab.id)} className={`flex-1 py-1 rounded transition ${activeChartTab === tab.id ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}>
-                    {tab.name}
-                  </button>
-                ))}
-              </div>
-
-              <div className="h-44 w-full flex items-center justify-center">
-                {isMounted && (
+            <div className="h-80 sm:h-96 w-full flex items-center justify-center mt-2">
+              {isMounted && (
+                isLoading ? (
+                  <div className="w-full h-full flex flex-col justify-between animate-pulse p-4 space-y-4">
+                    <div className="flex justify-between items-end h-64 w-full px-2 border-b border-zinc-800">
+                      <div className="w-12 h-40 bg-zinc-800 rounded-md" />
+                      <div className="w-12 h-56 bg-zinc-800 rounded-md" />
+                      <div className="w-12 h-24 bg-zinc-800 rounded-md" />
+                      <div className="w-12 h-48 bg-zinc-800 rounded-md" />
+                      <div className="w-12 h-36 bg-zinc-800 rounded-md" />
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground px-2">
+                      <div className="w-16 h-3.5 bg-zinc-800 rounded-md" />
+                      <div className="w-16 h-3.5 bg-zinc-800 rounded-md" />
+                      <div className="w-16 h-3.5 bg-zinc-800 rounded-md" />
+                      <div className="w-16 h-3.5 bg-zinc-800 rounded-md" />
+                      <div className="w-16 h-3.5 bg-zinc-800 rounded-md" />
+                    </div>
+                  </div>
+                ) : leaderboardData.length > 0 ? (
                   <>
                     {activeChartTab === 'radar' && (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarChartData}>
-                          <PolarGrid stroke="#cbd5e1" />
-                          <PolarAngleAxis dataKey="subject" stroke="#64748b" fontSize={9} fontWeight="bold" />
-                          <PolarRadiusAxis angle={30} domain={[0, 100]} stroke="#cbd5e1" fontSize={7} />
-                          <Radar name="Gemini 2.5 Pro" dataKey="A" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.25} />
-                          <Radar name="GPT-4.1" dataKey="B" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.25} />
-                          <Radar name="Claude 3.5" dataKey="C" stroke="#06b6d4" fill="#06b6d4" fillOpacity={0.25} />
+                       <ResponsiveContainer width="100%" height="100%">
+                        <RadarChart cx="50%" cy="50%" outerRadius="72%" data={radarChartData}>
+                          <PolarGrid stroke="oklch(1 0 0 / 10%)" />
+                          <PolarAngleAxis dataKey="subject" tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }} />
+                          <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                          <Radar name="Top Model" dataKey="A" stroke="var(--chart-1)" fill="var(--chart-1)" fillOpacity={0.32} strokeWidth={2} />
+                          <Radar name="Baseline" dataKey="B" stroke="var(--chart-2)" fill="var(--chart-2)" fillOpacity={0.14} strokeWidth={2} />
+                          <Radar name="Claude 3.5" dataKey="C" stroke="var(--chart-3)" fill="var(--chart-3)" fillOpacity={0.14} strokeWidth={2} />
                         </RadarChart>
                       </ResponsiveContainer>
                     )}
                     {activeChartTab === 'latency' && (
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={barChartData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="name" stroke="#64748b" fontSize={8} fontWeight="bold" />
-                          <YAxis stroke="#64748b" fontSize={9} />
-                          <Tooltip />
-                          <Line type="monotone" dataKey="Latency" stroke="#ec4899" strokeWidth={2} />
+                          <CartesianGrid strokeDasharray="3 3" stroke="oklch(1 0 0 / 8%)" />
+                          <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={11} tickLine={false} axisLine={false} />
+                          <YAxis stroke="var(--muted-foreground)" fontSize={11} tickLine={false} axisLine={false} />
+                          <Tooltip contentStyle={{ background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: 12, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--foreground)' }} />
+                          <Line type="monotone" dataKey="Latency" stroke="var(--chart-1)" strokeWidth={2} />
                         </LineChart>
                       </ResponsiveContainer>
                     )}
                     {activeChartTab === 'tokens' && (
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={barChartData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="name" stroke="#64748b" fontSize={8} fontWeight="bold" />
-                          <YAxis stroke="#64748b" fontSize={9} />
-                          <Tooltip />
-                          <Bar dataKey="TPS" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                        <BarChart data={barChartData} barSize={18}>
+                          <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={11} axisLine={false} tickLine={false} />
+                          <YAxis stroke="var(--muted-foreground)" fontSize={11} axisLine={false} tickLine={false} />
+                          <Tooltip contentStyle={{ background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: 12, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--foreground)' }} cursor={{ fill: 'oklch(1 0 0 / 4%)' }} />
+                          <Bar dataKey="TPS" fill="var(--chart-1)" radius={[6, 6, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     )}
                     {activeChartTab === 'cost' && (
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={barChartData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="name" stroke="#64748b" fontSize={8} fontWeight="bold" />
-                          <YAxis stroke="#64748b" fontSize={9} />
-                          <Tooltip formatter={(value) => `$${value}`} />
-                          <Bar dataKey="Cost" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                        <BarChart data={barChartData} barSize={18}>
+                          <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={11} axisLine={false} tickLine={false} />
+                          <YAxis stroke="var(--muted-foreground)" fontSize={11} axisLine={false} tickLine={false} />
+                          <Tooltip contentStyle={{ background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: 12, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--foreground)' }} formatter={(value) => `$${value}`} cursor={{ fill: 'oklch(1 0 0 / 4%)' }} />
+                          <Bar dataKey="Cost" fill="var(--chart-4)" radius={[6, 6, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     )}
                     {activeChartTab === 'costVsSpeed' && (
                       <ResponsiveContainer width="100%" height="100%">
                         <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="Cost" type="number" name="Cost ($)" stroke="#64748b" fontSize={9} tickFormatter={(val) => `$${val}`} />
-                          <YAxis dataKey="TPS" type="number" name="Speed (TPS)" stroke="#64748b" fontSize={9} />
+                          <CartesianGrid strokeDasharray="3 3" stroke="oklch(1 0 0 / 8%)" />
+                          <XAxis dataKey="Cost" type="number" name="Cost ($)" stroke="var(--muted-foreground)" fontSize={11} tickFormatter={(val) => `$${val}`} axisLine={false} tickLine={false} />
+                          <YAxis dataKey="TPS" type="number" name="Speed (TPS)" stroke="var(--muted-foreground)" fontSize={11} axisLine={false} tickLine={false} />
                           <ZAxis dataKey="name" name="Model" />
-                          <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={(val, name, props) => name === 'Cost ($)' ? `$${val}` : val} />
-                          <Scatter name="Models" data={barChartData} fill="#8b5cf6" />
+                          <Tooltip contentStyle={{ background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: 12, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--foreground)' }} cursor={{ strokeDasharray: '3 3' }} formatter={(val, name) => name === 'Cost ($)' ? `$${val}` : val} />
+                          <Scatter name="Models" data={barChartData} fill="var(--chart-1)" />
                         </ScatterChart>
                       </ResponsiveContainer>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center text-xs py-12" style={{ color: 'var(--muted-foreground)' }}>
+                    No data available. Run benchmarks to generate charts.
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+
+          {/* 5. Live Leaderboard & Comparison Grid Split */}
+          <section className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4">
+            
+            {/* Live Leaderboard (Spans 7/12) */}
+            <div className="lg:col-span-7 flex flex-col">
+              <div id="leaderboard-section" className="panel flex h-full flex-col p-5">
+                <div className="flex items-center gap-3">
+                  <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>3</span>
+                  <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
+                    Live Leaderboard <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Overall score</span>
+                  </h2>
+                </div>
+
+                <div className="mt-4 -mx-2 flex-1 overflow-y-auto pr-1" style={{ maxHeight: '420px' }}>
+                  <table className="w-full border-separate border-spacing-y-1 px-2">
+                    <thead>
+                      <tr className="num text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--muted-foreground)' }}>
+                        <th className="px-2 py-2 text-left font-normal">#</th>
+                        <th className="px-2 py-2 text-left font-normal">Model</th>
+                        <th className="px-2 py-2 text-right font-normal">Score</th>
+                        <th className="hidden px-2 py-2 text-right font-normal sm:table-cell">TTFT</th>
+                        <th className="px-2 py-2 text-right font-normal">Latency</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {isLoading ? (
+                        Array(5).fill(0).map((_, idx) => (
+                          <tr key={idx} className="animate-pulse" style={{ background: 'oklch(0.26 0.028 275 / 15%)' }}>
+                            <td className="px-3 py-3 rounded-l-xl"><div className="h-3 bg-zinc-800 rounded-md w-6 animate-pulse" /></td>
+                            <td className="px-2 py-3"><div className="h-3 bg-zinc-800 rounded-md w-28 sm:w-36 animate-pulse" /></td>
+                            <td className="px-2 py-3"><div className="h-4 bg-zinc-800 rounded-md w-12 ml-auto animate-pulse" /></td>
+                            <td className="hidden px-2 py-3 sm:table-cell"><div className="h-3 bg-zinc-800 rounded-md w-10 ml-auto animate-pulse" /></td>
+                            <td className="px-3 py-3 rounded-r-xl"><div className="h-3 bg-zinc-800 rounded-md w-12 ml-auto animate-pulse" /></td>
+                          </tr>
+                        ))
+                      ) : (
+                        leaderboardData.map((row, idx) => (
+                          <tr
+                            key={idx}
+                            className="group transition-colors"
+                            style={{ background: 'oklch(0.26 0.028 275 / 30%)' }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'var(--elevated)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'oklch(0.26 0.028 275 / 30%)'}
+                          >
+                            <td className="num rounded-l-xl px-3 py-2.5 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                              {(idx + 1).toString().padStart(2, '0')}
+                            </td>
+                            <td className="max-w-[190px] truncate px-2 py-2.5 text-xs" title={row.model}>
+                              {row.model.split('/').pop()}
+                            </td>
+                            <td className="px-2 py-2.5 text-right">
+                              <span
+                                className="num inline-flex min-w-[46px] justify-center rounded-md px-2 py-0.5 text-[11px] font-semibold"
+                                style={parseFloat(row.score) > 90
+                                  ? { background: 'oklch(0.63 0.21 292 / 25%)', color: 'var(--primary-glow)' }
+                                  : parseFloat(row.score) > 65
+                                    ? { background: 'oklch(0.78 0.14 195 / 15%)', color: 'var(--accent)' }
+                                    : { background: 'var(--muted)', color: 'var(--muted-foreground)' }
+                                }
+                              >
+                                {row.score}
+                              </span>
+                            </td>
+                            <td className="num hidden px-2 py-2.5 text-right text-xs sm:table-cell" style={{ color: 'var(--muted-foreground)' }}>{row.ttft}</td>
+                            <td className="num rounded-r-xl px-3 py-2.5 text-right text-xs" style={{ color: 'var(--muted-foreground)' }}>{row.latency}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Side-by-Side Comparison (Spans 5/12) */}
+            <div className="lg:col-span-5 flex flex-col">
+              <div id="compare-section" className="panel p-5 h-full flex flex-col">
+                <div className="flex items-center gap-3">
+                  <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>4</span>
+                  <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>Side-by-Side Comparison</h2>
+                </div>
+
+                {isLoading ? (
+                  <div className="mt-4 flex-1 flex flex-col justify-between animate-pulse space-y-4">
+                    <div className="flex gap-3 justify-between">
+                      <div className="h-8 bg-zinc-800 rounded-xl flex-1 animate-pulse" />
+                      <div className="h-8 bg-zinc-800 rounded-xl flex-1 animate-pulse" />
+                    </div>
+                    <div className="space-y-4 pt-2">
+                      {Array(5).fill(0).map((_, idx) => (
+                        <div key={idx} className="space-y-2">
+                          <div className="flex justify-between">
+                            <div className="h-3 bg-zinc-800 rounded-md w-8 animate-pulse" />
+                            <div className="h-3 bg-zinc-800 rounded-md w-24 animate-pulse" />
+                            <div className="h-3 bg-zinc-800 rounded-md w-8 animate-pulse" />
+                          </div>
+                          <div className="h-1.5 bg-zinc-800 rounded-full w-full animate-pulse" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mt-4 flex items-center gap-3">
+                      <select
+                        value={compareModelA}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (val === compareModelB) {
+                            setCompareModelB(compareModelA);
+                          }
+                          setCompareModelA(val);
+                        }}
+                        className="flex min-w-0 flex-1 rounded-xl px-3 py-2.5 text-xs transition-colors num appearance-none"
+                        style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
+                      >
+                        {leaderboardData.length > 0 ? leaderboardData.map(l => (
+                          <option key={`a-${l.model}`} value={l.model}>{l.model}</option>
+                        )) : <option value={compareModelA}>{compareModelA}</option>}
+                      </select>
+                      <span className="num text-[10px] uppercase tracking-[0.2em]" style={{ color: 'var(--muted-foreground)' }}>vs</span>
+                      <select
+                        value={compareModelB}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (val === compareModelA) {
+                            setCompareModelA(compareModelB);
+                          }
+                          setCompareModelB(val);
+                        }}
+                        className="flex min-w-0 flex-1 rounded-xl px-3 py-2.5 text-xs transition-colors num appearance-none"
+                        style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
+                      >
+                        {leaderboardData.length > 0 ? leaderboardData.map(l => (
+                          <option key={`b-${l.model}`} value={l.model}>{l.model}</option>
+                        )) : <option value={compareModelB}>{compareModelB}</option>}
+                      </select>
+                    </div>
+
+                    {modelAData && modelBData ? (
+                      <div className="mt-5 space-y-4">
+                        {[
+                          { label: 'Overall score', a: modelAData.score, b: modelBData.score, av: parseFloat(modelAData.score), bv: parseFloat(modelBData.score) },
+                          { label: 'Accuracy', a: modelAData.accuracy, b: modelBData.accuracy, av: parseFloat(modelAData.accuracy), bv: parseFloat(modelBData.accuracy) },
+                          { label: 'Tokens / sec', a: modelAData.tps, b: modelBData.tps, av: parseFloat(modelAData.tps), bv: parseFloat(modelBData.tps) },
+                          { label: 'Peak Speed', a: modelAData.peakSpeed ? `${modelAData.peakSpeed} t/s` : 'N/A', b: modelBData.peakSpeed ? `${modelBData.peakSpeed} t/s` : 'N/A', av: parseFloat(modelAData.peakSpeed || 0), bv: parseFloat(modelBData.peakSpeed || 0) },
+                          { label: 'Latency', a: modelAData.latency, b: modelBData.latency, av: parseFloat(modelAData.latency), bv: parseFloat(modelBData.latency), lower: true },
+                          { label: 'Fastest Response', a: modelAData.minLatency, b: modelBData.minLatency, av: parseFloat(modelAData.minLatency), bv: parseFloat(modelBData.minLatency), lower: true },
+                          { label: 'Time to First Token', a: modelAData.ttft, b: modelBData.ttft, av: parseFloat(modelAData.ttft), bv: parseFloat(modelBData.ttft), lower: true },
+                          { label: 'Average Cost', a: modelAData.cost ? `$${modelAData.cost.toFixed(5)}` : 'N/A', b: modelBData.cost ? `$${modelBData.cost.toFixed(5)}` : 'N/A', av: parseFloat(modelAData.cost || 0), bv: parseFloat(modelBData.cost || 0), lower: true },
+                        ].map(m => {
+                          const total = m.av + m.bv || 1;
+                          const aPct = m.lower ? (m.bv / total) * 100 : (m.av / total) * 100;
+                          return (
+                            <div key={m.label}>
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="num" style={{ color: 'var(--primary-glow)' }}>{m.a}</span>
+                                <span style={{ color: 'var(--muted-foreground)' }}>{m.label}</span>
+                                <span className="num" style={{ color: 'var(--accent)' }}>{m.b}</span>
+                              </div>
+                              <div className="mt-2 flex h-1.5 overflow-hidden rounded-full" style={{ background: 'var(--secondary)' }}>
+                                <span className="h-full rounded-full" style={{ width: `${aPct}%`, backgroundImage: 'var(--gradient-primary)' }} />
+                                <span className="h-full flex-1" style={{ background: 'oklch(0.78 0.14 195 / 40%)' }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center text-center text-xs py-6" style={{ color: 'var(--muted-foreground)' }}>
+                        Not enough historical data to compare these models.
+                      </div>
                     )}
                   </>
                 )}
@@ -928,126 +1322,137 @@ export default function BenchmarkDashboard() {
 
           </section>
 
-          {/* 5. Side-by-Side Comparison & Historical Analysis */}
-          <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-            {/* Side-by-Side Comparison */}
-            <div id="compare-section" className="glass-card rounded-2xl p-5 space-y-3">
-              <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
-                <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">4</span> Side-by-Side Comparison
-              </h3>
-
-              <div className="flex items-center gap-2 text-xs">
-                <select value={compareModelA} onChange={e => setCompareModelA(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 font-semibold text-[11px] flex-1">
-                  <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                  <option value="gpt-4.1">GPT-4.1</option>
-                </select>
-                <span className="text-slate-400 font-bold text-[10px]">vs</span>
-                <select value={compareModelB} onChange={e => setCompareModelB(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 font-semibold text-[11px] flex-1">
-                  <option value="gpt-4.1">GPT-4.1</option>
-                  <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                </select>
-                <button onClick={() => showToast(`Comparison completed between ${compareModelA} and ${compareModelB}`)} className="bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded-lg">Compare</button>
+          {/* 6. Historical Analysis (Full Width) */}
+          <div id="history-section" className="panel p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>5</span>
+                <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
+                  Historical Analysis <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Last 7 days</span>
+                </h2>
               </div>
-
-              <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2 text-xs">
-                <div className="flex justify-between border-b border-slate-200 pb-1 font-bold text-slate-700 text-[11px]">
-                  <span>Response (Preview)</span>
-                  <span>Certainly! Here's a solut... vs Sure! Here is the solution...</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>Latency</span>
-                  <span><strong className="text-emerald-600">1.21s ✓</strong> vs 1.54s</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>Tokens</span>
-                  <span>1,245 vs <strong className="text-emerald-600">1,356 ✓</strong></span>
-                </div>
-                <div className="flex justify-between text-slate-600 font-bold">
-                  <span>Score (Overall)</span>
-                  <span><strong className="text-blue-600">95.4</strong> vs <strong className="text-red-600">93.1</strong></span>
-                </div>
-              </div>
-
-              <div className="text-center">
-                <span className="text-xs text-blue-600 font-extrabold">Winner: Gemini 2.5 Pro 🏆</span>
+              <div className="flex gap-2">
+                <button onClick={downloadCSVReport} className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs transition-colors cursor-pointer" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}>
+                  <Download className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} /> CSV
+                </button>
+                <button onClick={() => setIsHistoryFilterOpen(!isHistoryFilterOpen)} className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium cursor-pointer" style={{ backgroundImage: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)', color: 'var(--primary-foreground)' }}>
+                  <Sliders className="w-3.5 h-3.5" /> Filter
+                </button>
               </div>
             </div>
 
-            {/* Historical Analysis */}
-            <div id="history-section" className="glass-card rounded-2xl p-4 sm:p-5 space-y-3 lg:col-span-2">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900">
-                  <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">5</span> Historical Analysis
-                </h3>
-                <div className="flex gap-2 w-full sm:w-auto">
-                  <button onClick={downloadCSVReport} className="flex-1 sm:flex-initial bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-300">Export CSV</button>
-                  <button onClick={downloadCSVReport} className="flex-1 sm:flex-initial bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-300">Export PDF</button>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row flex-wrap gap-2 text-xs">
-                <input type="text" value="May 21, 2025 - May 27, 2025" readOnly className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] text-slate-700" />
-                <select value={historyProviderFilter} onChange={e => setHistoryProviderFilter(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] text-slate-700">
-                  <option value="All">All Providers</option>
-                  <option value="Google Gemini">Google Gemini</option>
-                  <option value="Groq API">Groq API</option>
-                </select>
-                <select value={historyModelFilter} onChange={e => setHistoryModelFilter(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] text-slate-700">
-                  <option value="All">All Models</option>
-                  <option value="gemini">Gemini</option>
-                  <option value="gpt">GPT</option>
-                </select>
-                <select value={historyPromptFilter} onChange={e => setHistoryPromptFilter(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] text-slate-700">
-                  <option value="All">All Prompt Types</option>
-                  <option value="coding">Coding</option>
-                  <option value="reasoning">Reasoning</option>
-                </select>
-                <button onClick={() => showToast('Filters applied')} className="bg-slate-200 text-slate-700 text-[10px] font-bold px-3 py-1 rounded-lg">Filter</button>
-              </div>
-
-              <div className="overflow-x-auto overflow-y-auto max-h-[400px] -mx-1 px-1">
-                <table className="w-full min-w-[620px] text-left border-collapse text-xs font-semibold">
-                  <thead className="sticky top-0 bg-white/95 backdrop-blur-sm z-10 shadow-sm">
-                    <tr className="border-b border-slate-200 text-[10px] text-slate-400 uppercase">
-                      <th className="py-1.5 px-2">Date &amp; Time</th>
-                      <th className="py-1.5 px-2">Model</th>
-                      <th className="py-1.5 px-2">Prompt Type</th>
-                      <th className="py-1.5 px-2">Iterations</th>
-                      <th className="py-1.5 px-2">Score</th>
-                      <th className="py-1.5 px-2">Latency</th>
-                      <th className="py-1.5 px-2">Status</th>
-                      <th className="py-1.5 px-2">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredHistory.map((row, idx) => (
-                      <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50">
-                        <td className="py-2 px-2 text-slate-500 font-mono text-[10px]">{new Date(row.created_at || Date.now()).toLocaleString()}</td>
-                        <td className="py-2 px-2 font-bold text-slate-800">{row.model.split('/').pop()}</td>
-                        <td className="py-2 px-2 text-slate-600">{row.task}</td>
-                        <td className="py-2 px-2 font-mono text-slate-600">{row.iterations || 3}</td>
-                        <td className="py-2 px-2 font-bold text-purple-700">{row.score || 95.4}</td>
-                        <td className="py-2 px-2 font-mono text-slate-600">{(row.latency_ms / 1000).toFixed(2)}s</td>
-                        <td className="py-2 px-2">
-                          <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-[9px] font-extrabold border border-emerald-300">Completed</span>
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 hover:text-slate-700 cursor-pointer" onClick={() => setInspectedRow(row)}>👁️</td>
-                      </tr>
+            {isHistoryFilterOpen && (
+              <div className="flex flex-wrap gap-4 p-4 rounded-xl animate-fade-in" style={{ background: 'oklch(0.26 0.028 275 / 20%)', border: '1px solid var(--border)' }}>
+                <div className="flex flex-col gap-1.5 min-w-[180px] flex-1">
+                  <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: 'var(--muted-foreground)' }}>Model</span>
+                  <select
+                    value={historyModelFilter}
+                    onChange={e => setHistoryModelFilter(e.target.value)}
+                    className="w-full rounded-lg px-3 py-2 text-xs appearance-none num transition-colors"
+                    style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)' }}
+                  >
+                    {uniqueModels.map(m => (
+                      <option key={m} value={m}>{m.split('/').pop()}</option>
                     ))}
-                  </tbody>
-                </table>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5 min-w-[150px] flex-1">
+                  <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: 'var(--muted-foreground)' }}>Date</span>
+                  <input
+                    type="date"
+                    value={historyDateFilter}
+                    onChange={e => setHistoryDateFilter(e.target.value)}
+                    className="w-full rounded-lg px-3 py-2 text-xs transition-colors num"
+                    style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)', color: 'var(--foreground)', colorScheme: 'dark' }}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    onClick={() => {
+                      setHistoryModelFilter('All');
+                      setHistoryDateFilter('');
+                    }}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 60%)', color: 'var(--foreground)' }}
+                  >
+                    Reset
+                  </button>
+                </div>
               </div>
+            )}
 
+            <div className="mt-5 overflow-x-auto overflow-y-auto pr-1" style={{ maxHeight: '350px' }}>
+              <table className="w-full min-w-[720px] border-separate border-spacing-y-1">
+                <thead>
+                  <tr className="num text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--muted-foreground)' }}>
+                    {['Date & Time', 'Model', 'Prompt type', 'Iterations', 'Score', 'Latency', 'Status', ''].map(h => (
+                      <th key={h} className="px-3 py-2 text-left font-normal">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoading ? (
+                    Array(5).fill(0).map((_, idx) => (
+                      <tr key={idx} className="animate-pulse" style={{ background: 'oklch(0.26 0.028 275 / 15%)' }}>
+                        <td className="px-3 py-3.5 rounded-l-xl"><div className="h-3.5 bg-zinc-800 rounded-md w-28 animate-pulse" /></td>
+                        <td className="px-3 py-3.5"><div className="h-3.5 bg-zinc-800 rounded-md w-32 animate-pulse" /></td>
+                        <td className="px-3 py-3.5"><div className="h-3.5 bg-zinc-800 rounded-md w-20 animate-pulse" /></td>
+                        <td className="px-3 py-3.5"><div className="h-3.5 bg-zinc-800 rounded-md w-8 animate-pulse" /></td>
+                        <td className="px-3 py-3.5"><div className="h-3.5 bg-zinc-800 rounded-md w-12 animate-pulse" /></td>
+                        <td className="px-3 py-3.5"><div className="h-3.5 bg-zinc-800 rounded-md w-12 animate-pulse" /></td>
+                        <td className="px-3 py-3.5"><div className="h-4 bg-zinc-800 rounded-md w-16 animate-pulse" /></td>
+                        <td className="px-3 py-3.5 rounded-r-xl"><div className="h-4 bg-zinc-800 rounded-md w-4 ml-auto animate-pulse" /></td>
+                      </tr>
+                    ))
+                  ) : filteredHistory.length > 0 ? (
+                    filteredHistory.map((row, idx) => {
+                      const dt = new Date(row.created_at || Date.now());
+                      const dateStr = dt.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+                      const timeStr = dt.toTimeString().split(' ')[0];
+                      const dateTimeStr = `${dateStr} ${timeStr}`;
+                      return (
+                        <tr key={idx} className="transition-colors" style={{ background: 'oklch(0.26 0.028 275 / 30%)' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--elevated)'} onMouseLeave={e => e.currentTarget.style.background = 'oklch(0.26 0.028 275 / 30%)'}>
+                          <td className="num rounded-l-xl px-3 py-3 text-xs whitespace-nowrap" style={{ color: 'var(--muted-foreground)' }}>{dateTimeStr}</td>
+                          <td className="px-3 py-3 text-xs">{row.model.split('/').pop()}</td>
+                          <td className="px-3 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>{row.task}</td>
+                          <td className="num px-3 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>{row.iterations || 3}</td>
+                          <td className="num px-3 py-3 text-xs" style={{ color: 'var(--primary-glow)' }}>{row.score || 95.4}</td>
+                          <td className="num px-3 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>{(row.latency_ms / 1000).toFixed(2)}s</td>
+                          <td className="px-3 py-3">
+                            <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px]" style={{ background: 'oklch(0.75 0.17 155 / 15%)', color: 'var(--success)' }}>
+                              <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--success)' }} />
+                              Completed
+                            </span>
+                          </td>
+                          <td className="rounded-r-xl px-3 py-3">
+                            <button className="transition-colors" style={{ color: 'var(--muted-foreground)' }} onClick={() => setInspectedRow(row)}>
+                              <Eye className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="text-center py-6 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                        <div className="flex flex-col items-center justify-center min-h-[150px] gap-2">
+                          <span>No matching benchmark history found.</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
 
-          </section>
+          </div>
 
+          </div>{/* end relative mx-auto wrapper */}
         </main>
 
-        <footer className="bg-white border-t border-slate-200 px-4 sm:px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-1 text-[10px] text-slate-500 font-semibold z-10 mt-auto text-center sm:text-left">
+        <footer className="px-4 sm:px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-1 text-[10px] font-semibold z-10 mt-auto text-center sm:text-left" style={{ borderTop: '1px solid var(--border)', color: 'var(--muted-foreground)' }}>
           <span>© {new Date().getFullYear()} AI Benchmark Analyzer Platform · Unified LLM Evaluation</span>
-          <span>Light Theme Active</span>
+          <span className="num">v2.0 — Instrument Deck</span>
         </footer>
       </div>
 
