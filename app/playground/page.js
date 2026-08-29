@@ -232,6 +232,8 @@ export default function PlaygroundPage() {
         let buffer = '';
         let apiErrorMsg = null;
         let isSuccess = false;
+        let apiTtftMs = 0;
+        let apiSpeed = 0;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -250,6 +252,8 @@ export default function PlaygroundPage() {
                 isSuccess = msg.data.success;
                 if (msg.data.error) apiErrorMsg = msg.data.error;
                 if (msg.data.text) fullText = msg.data.text;
+                if (msg.data.ttftMs) apiTtftMs = msg.data.ttftMs;
+                if (msg.data.speed) apiSpeed = msg.data.speed;
 
                 const elapsedSec = (msg.data.durationMs / 1000).toFixed(2) + 's';
                 setModelOutputs(prev => ({
@@ -297,7 +301,13 @@ export default function PlaygroundPage() {
           tokens: finalTokens,
           cost: modelObj.cost || '$0.002',
           costNum: parseFloat((modelObj.cost || '$0.002').replace('$', '')) || 0.002,
-          success: isSuccess && !apiErrorMsg
+          success: isSuccess && !apiErrorMsg,
+          // Extra backend metrics
+          prompt: systemPrompt ? `System: ${systemPrompt}\n\nUser: ${activePrompt}` : activePrompt,
+          ttftMs: apiTtftMs,
+          speed: apiSpeed,
+          responseText: fullText,
+          error: apiErrorMsg
         });
 
       } catch (err) {
@@ -314,7 +324,12 @@ export default function PlaygroundPage() {
           tokens: 0,
           cost: '$0.000',
           costNum: 0,
-          success: false
+          success: false,
+          prompt: systemPrompt ? `System: ${systemPrompt}\n\nUser: ${activePrompt}` : activePrompt,
+          ttftMs: 0,
+          speed: 0,
+          responseText: fullText || (isAbort ? '' : 'Error: ' + errorMsg),
+          error: isAbort ? null : errorMsg
         });
 
         setModelOutputs(prev => ({
@@ -344,6 +359,31 @@ export default function PlaygroundPage() {
         results: runResults
       };
       setRunHistory(prev => [newHistoryRecord, ...prev]);
+
+      // Post results to backend Supabase DB
+      try {
+        const backendPayload = runResults.map(res => ({
+          model: res.id,
+          task: 'Playground Query',
+          prompt: res.prompt,
+          ttft_ms: res.ttftMs || 0,
+          latency_ms: Math.round(res.latencyNum * 1000) || 0,
+          tokens: res.tokens || 0,
+          speed_tps: res.speed || 0,
+          success: res.success,
+          response_text: res.responseText || '',
+          error_message: res.error || null,
+          session_id: 'playground-session'
+        }));
+        
+        fetch('/api/history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ results: backendPayload })
+        }).catch(err => console.error('Failed to save to backend:', err));
+      } catch (err) {
+        console.error('Error preparing backend payload:', err);
+      }
     }
   };
 
