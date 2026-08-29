@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   PlayCircle,
@@ -112,8 +113,6 @@ const PLAYGROUND_PROMPTS = {
 
 const NAV_ITEMS = [
   { name: 'Overview', icon: LayoutDashboard },
-  { name: 'Run Benchmark', icon: PlayCircle },
-  { name: 'Live Runs', icon: Activity },
   { name: 'Leaderboard', icon: Trophy },
   { name: 'Compare Models', icon: Sliders },
   { name: 'History', icon: HistoryIcon },
@@ -234,6 +233,7 @@ function renderMarkdown(text) {
 
 
 export default function BenchmarkDashboard() {
+  const router = useRouter();
   // Config state
   const [config, setConfig] = useState({
     env: { ollamaApiKey: '', ollamaHost: 'http://localhost:11434', geminiApiKey: '', groqApiKey: '', openRouterApiKey: '' },
@@ -366,15 +366,11 @@ export default function BenchmarkDashboard() {
     setActiveNav(navName);
     setIsMobileMenuOpen(false);
     if (navName === 'Playground') {
-      window.location.href = '/playground';
+      router.push('/playground');
       return;
     }
     if (navName === 'Overview') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    } else if (navName === 'Run Benchmark') {
-      document.getElementById('config-section')?.scrollIntoView({ behavior: 'smooth' });
-    } else if (navName === 'Live Runs') {
-      document.getElementById('live-status-section')?.scrollIntoView({ behavior: 'smooth' });
     } else if (navName === 'Leaderboard') {
       document.getElementById('leaderboard-section')?.scrollIntoView({ behavior: 'smooth' });
     } else if (navName === 'Compare Models') {
@@ -1016,7 +1012,7 @@ export default function BenchmarkDashboard() {
               <div className="flex items-center gap-3">
                 <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>1</span>
                 <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
-                  Key Analytics <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Normalized across 5 dimensions</span>
+                  Analytics <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Normalized across 5 dimensions</span>
                 </h2>
               </div>
               <div className="flex gap-1 rounded-xl p-1" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)' }}>
@@ -1201,7 +1197,7 @@ export default function BenchmarkDashboard() {
               <div id="compare-section" className="panel p-5 h-full flex flex-col">
                 <div className="flex items-center gap-3">
                   <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>3</span>
-                  <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>Side-by-Side Comparison</h2>
+                  <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>Compare Models</h2>
                 </div>
 
                 {isLoading ? (
@@ -1308,7 +1304,7 @@ export default function BenchmarkDashboard() {
               <div className="flex items-center gap-3">
                 <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>4</span>
                 <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
-                  Historical Analysis <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Last 7 days</span>
+                  History <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Last 7 days</span>
                 </h2>
               </div>
               <div className="flex gap-2">
