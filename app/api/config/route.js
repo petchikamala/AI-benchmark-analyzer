@@ -7,7 +7,6 @@ const configFilePath = path.join(process.cwd(), 'config.json');
 
 const defaultModels = [
   "gemini-3.5-flash",
-  "groq/llama-3.3-70b-versatile",
   "openrouter/google/gemma-4-31b-it:free",
   "openrouter/openrouter/free"
 ];

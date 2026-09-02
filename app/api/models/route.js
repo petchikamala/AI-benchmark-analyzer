@@ -43,14 +43,11 @@ export async function POST(request) {
     const ollamaApiKey = apiKeys?.ollamaApiKey || dbKeys.ollamaApiKey || process.env.OLLAMA_API_KEY || "";
 
     const defaultModels = [
-      "gemini-3.5-flash",
-      "groq/llama-3.3-70b-versatile",
-      "groq/llama-3.1-8b-instant"
+      "gemini-3.5-flash"
     ];
 
     const huggingfaceModels = [
       "huggingface/meta-llama/Llama-3.1-8B-Instruct",
-      "huggingface/Qwen/Qwen2.5-7B-Instruct",
       "huggingface/deepseek-ai/DeepSeek-V3"
     ];
 
@@ -63,7 +60,9 @@ export async function POST(request) {
           m.pricing && 
           (m.pricing.prompt === "0" || parseFloat(m.pricing.prompt) === 0) && 
           (m.pricing.completion === "0" || parseFloat(m.pricing.completion) === 0) &&
-          !m.id.toLowerCase().includes('lyria')
+          !m.id.toLowerCase().includes('lyria') &&
+          !m.id.toLowerCase().includes('inkling') &&
+          !m.id.toLowerCase().includes('glm')
         );
         // Add the top 10 free models dynamically
         dynamicOpenRouterModels = freeModels.slice(0, 10).map(m => `openrouter/${m.id}`);

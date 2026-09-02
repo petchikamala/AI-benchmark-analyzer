@@ -74,7 +74,7 @@ export default function PlaygroundPage() {
   const [isModelsLoading, setIsModelsLoading] = useState(true);
 
   // Selected Models IDs
-  const [selectedModelIds, setSelectedModelIds] = useState(['groq/llama-3.3-70b-versatile', 'groq/llama-3.1-8b-instant']);
+  const [selectedModelIds, setSelectedModelIds] = useState(['gemini-3.5-flash', 'openrouter/openrouter/free']);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const dropdownRef = useRef(null);
@@ -457,7 +457,7 @@ export default function PlaygroundPage() {
       const ch = new BroadcastChannel('live-benchmark-channel');
       ch.postMessage({ type: 'clear' });
       ch.close();
-      setLiveQueue([]);
+      // setLiveQueue([]);
     }, 3000);
 
     // Save run record to dynamic history
@@ -1346,12 +1346,16 @@ export default function PlaygroundPage() {
                 No active benchmark runs in queue.
               </p>
             ) : (
-              <div className="space-y-2 text-xs font-semibold max-h-32 overflow-y-auto pr-1">
-                {liveQueue.map((item, i) => (
-                  <div key={i} className="space-y-1">
+              <div className="relative text-xs font-semibold max-h-32 overflow-y-auto pr-1 overflow-x-hidden" style={{ height: `${liveQueue.length * 34}px` }}>
+                {[...liveQueue].sort((a, b) => {
+                  if (a.status === 'running' && b.status !== 'running') return -1;
+                  if (a.status !== 'running' && b.status === 'running') return 1;
+                  return 0;
+                }).map((item, i) => (
+                  <div key={item.model} className="absolute left-0 right-1 space-y-1 transition-all duration-500 ease-in-out" style={{ top: `${i * 34}px` }}>
                     <div className="flex justify-between text-[11px]">
-                      <span style={{ color: 'var(--foreground)' }}>{item.model.split('/').pop()}</span>
-                      <span className="capitalize" style={{ color: 'var(--muted-foreground)' }}>{item.status} {item.progress || 0}%</span>
+                      <span className="truncate" style={{ color: 'var(--foreground)' }}>{item.model.split('/').pop()}</span>
+                      <span className="capitalize whitespace-nowrap" style={{ color: 'var(--muted-foreground)' }}>{item.status} {item.progress || 0}%</span>
                     </div>
                     <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--secondary)' }}>
                       <div className="h-full rounded-full transition-all duration-300" style={{ width: `${item.progress || 0}%`, backgroundImage: 'var(--gradient-primary)' }}></div>

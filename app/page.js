@@ -75,10 +75,7 @@ const DEFAULT_MODELS_GROUPED = {
     "gemini-3.5-flash",
     "gemini-2.5-flash"
   ],
-  "Groq API": [
-    "groq/llama-3.3-70b-versatile",
-    "groq/llama-3.1-8b-instant",
-  ],
+  "Groq API": [],
   "OpenRouter Models": [
     "openrouter/openrouter/free",
     "openrouter/google/gemma-4-26b-a4b-it:free",
@@ -240,7 +237,7 @@ export default function BenchmarkDashboard() {
     config: { models: [], tasks: [], iterations: 3 }
   });
   const [modelsGrouped, setModelsGrouped] = useState(structuredClone(DEFAULT_MODELS_GROUPED));
-  const [selectedModels, setSelectedModels] = useState(['gemini-2.5-pro', 'groq/llama-3.3-70b-versatile', 'openrouter/google/gemma-4-31b-it:free']);
+  const [selectedModels, setSelectedModels] = useState(['gemini-3.5-flash', 'openrouter/google/gemma-4-31b-it:free']);
   const [iterations, setIterations] = useState(3);
   const [customPrompt, setCustomPrompt] = useState('');
   const [configStatus, setConfigStatus] = useState('');
