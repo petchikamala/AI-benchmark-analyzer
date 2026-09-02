@@ -53,6 +53,7 @@ export async function POST(request) {
           success: r.success,
           response_text: r.response_text,
           error_message: r.error_message,
+          score: r.score,
           session_id: r.session_id || 'default-session'
         }));
 

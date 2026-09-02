@@ -1009,7 +1009,7 @@ export default function BenchmarkDashboard() {
               <div className="flex items-center gap-3">
                 <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>1</span>
                 <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
-                  Analytics <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Normalized across 5 dimensions</span>
+                  Analytics
                 </h2>
               </div>
               <div className="flex gap-1 rounded-xl p-1" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)' }}>
@@ -1124,7 +1124,7 @@ export default function BenchmarkDashboard() {
                 <div className="flex items-center gap-3">
                   <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>2</span>
                   <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
-                    Live Leaderboard <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Overall score</span>
+                    Live Leaderboard
                   </h2>
                 </div>
 
@@ -1358,7 +1358,7 @@ export default function BenchmarkDashboard() {
               <table className="w-full min-w-[720px] border-separate border-spacing-y-1">
                 <thead>
                   <tr className="num text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--muted-foreground)' }}>
-                    {['Date & Time', 'Model', 'Prompt type', 'Iterations', 'Score', 'Latency', 'Status', ''].map(h => (
+                    {['Date & Time', 'Model', 'Prompt type', 'Tokens', 'Score', 'Latency', 'Status', ''].map(h => (
                       <th key={h} className="px-3 py-2 text-left font-normal">{h}</th>
                     ))}
                   </tr>
@@ -1388,7 +1388,7 @@ export default function BenchmarkDashboard() {
                           <td className="num rounded-l-xl px-3 py-3 text-xs whitespace-nowrap" style={{ color: 'var(--muted-foreground)' }}>{dateTimeStr}</td>
                           <td className="px-3 py-3 text-xs">{row.model.split('/').pop()}</td>
                           <td className="px-3 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>{row.task}</td>
-                          <td className="num px-3 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>{row.iterations || 3}</td>
+                          <td className="num px-3 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>{row.tokens || 3}</td>
                           <td className="num px-3 py-3 text-xs" style={{ color: 'var(--primary-glow)' }}>{row.score || 95.4}</td>
                           <td className="num px-3 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>{(row.latency_ms / 1000).toFixed(2)}s</td>
                           <td className="px-3 py-3">

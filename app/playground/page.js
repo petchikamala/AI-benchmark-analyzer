@@ -246,6 +246,7 @@ export default function PlaygroundPage() {
           success: res.success,
           response_text: res.responseText || '',
           error_message: res.error || null,
+          score: res.score || 0,
           session_id: 'playground-session'
         }];
         fetch('/api/history', {
