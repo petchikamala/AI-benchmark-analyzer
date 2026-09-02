@@ -1128,13 +1128,13 @@ export default function PlaygroundPage() {
 
             <div className="overflow-y-auto space-y-1.5 flex-1 pr-1 border border-transparent [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
               {isModelsLoading ? (
-                Array(6).fill(0).map((_, idx) => (
-                  <div key={idx} className="p-2 rounded-xl text-xs flex items-center justify-between animate-pulse">
+                Array(12).fill(0).map((_, idx) => (
+                  <div key={idx} className="p-2 mb-1 rounded-xl text-xs flex items-center justify-between animate-pulse">
                     <div className="flex items-center gap-2 truncate flex-1">
-                      <div className="w-4 h-4 rounded-full bg-zinc-800 shrink-0 animate-pulse" />
-                      <div className="h-3 bg-zinc-800 rounded-md w-28 animate-pulse" />
+                      <div className="w-4 h-4 rounded-full bg-zinc-800 shrink-0" />
+                      <div className="h-3 rounded-md bg-zinc-800" style={{ width: `${[40, 65, 50, 75, 45, 60, 55, 70, 48, 62, 52, 68][idx]}%` }} />
                     </div>
-                    <div className="w-3.5 h-3.5 rounded bg-zinc-800 shrink-0 animate-pulse" />
+                    <div className="w-4 h-4 rounded bg-zinc-800 shrink-0 ml-2" />
                   </div>
                 ))
               ) : (
@@ -1506,7 +1506,7 @@ export default function PlaygroundPage() {
       </div>
 
       {/* ─── 5. RIGHT SIDEBAR BENCHMARK SUMMARY (DYNAMIC DATA) ───────────── */}
-      <aside className="w-full lg:w-80 flex flex-col justify-between flex-shrink-0 print:hidden p-5" style={{ borderLeft: '1px solid var(--sidebar-border)', background: 'var(--sidebar)' }}>
+      <aside className="w-full lg:w-80 flex flex-col justify-between flex-shrink-0 print:hidden lg:h-screen lg:sticky lg:top-0 overflow-y-auto p-5" style={{ borderLeft: '1px solid var(--sidebar-border)', background: 'var(--sidebar)' }}>
         <div className="space-y-6">
 
           {!hasApiResponse ? (
@@ -1642,13 +1642,13 @@ export default function PlaygroundPage() {
 
               <div className="overflow-y-auto space-y-1.5 flex-1 pr-1 border border-transparent [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
                 {isModelsLoading ? (
-                  Array(6).fill(0).map((_, idx) => (
-                    <div key={idx} className="p-2 rounded-xl text-xs flex items-center justify-between animate-pulse">
+                  Array(12).fill(0).map((_, idx) => (
+                    <div key={idx} className="p-2 mb-1 rounded-xl text-xs flex items-center justify-between animate-pulse">
                       <div className="flex items-center gap-2 truncate flex-1">
-                        <div className="w-4 h-4 rounded-full bg-zinc-800 shrink-0 animate-pulse" />
-                        <div className="h-3 bg-zinc-800 rounded-md w-28 animate-pulse" />
+                        <div className="w-4 h-4 rounded-full bg-zinc-800 shrink-0" />
+                        <div className="h-3 rounded-md bg-zinc-800" style={{ width: `${[40, 65, 50, 75, 45, 60, 55, 70, 48, 62, 52, 68][idx]}%` }} />
                       </div>
-                      <div className="w-3.5 h-3.5 rounded bg-zinc-800 shrink-0 animate-pulse" />
+                      <div className="w-4 h-4 rounded bg-zinc-800 shrink-0 ml-2" />
                     </div>
                   ))
                 ) : (

@@ -1301,7 +1301,7 @@ export default function BenchmarkDashboard() {
               <div className="flex items-center gap-3">
                 <span className="num flex w-6 h-6 items-center justify-center rounded-lg text-[11px] font-semibold" style={{ backgroundImage: 'var(--gradient-primary)', color: 'var(--primary-foreground)' }}>4</span>
                 <h2 className="text-sm font-semibold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
-                  History <span className="ml-2 text-xs font-normal" style={{ fontFamily: 'var(--font-sans)', color: 'var(--muted-foreground)' }}>Last 7 days</span>
+                  History
                 </h2>
               </div>
               <div className="flex gap-2">
