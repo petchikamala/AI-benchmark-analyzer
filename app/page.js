@@ -285,7 +285,7 @@ export default function BenchmarkDashboard() {
   const [compareModelB, setCompareModelB] = useState('');
 
   // Analytics Chart Active Tab
-  const [activeChartTab, setActiveChartTab] = useState('radar');
+  const [activeChartTab, setActiveChartTab] = useState('latency');
   const [toasts, setToasts] = useState([]);
   const [isMounted, setIsMounted] = useState(false);
 
@@ -1013,7 +1013,7 @@ export default function BenchmarkDashboard() {
                 </h2>
               </div>
               <div className="flex gap-1 rounded-xl p-1" style={{ border: '1px solid var(--border)', background: 'oklch(0.26 0.028 275 / 50%)' }}>
-                {['Radar', 'Latency', 'Tokens/Sec', 'Cost'].map(tab => {
+                {[ 'Latency', 'Radar','Tokens/Sec', 'Cost'].map(tab => {
                   const tabId = tab === 'Tokens/Sec' ? 'tokens' : tab.toLowerCase();
                   return (
                     <button 
